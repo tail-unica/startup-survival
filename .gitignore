@@ -4,5 +4,6 @@ venv/
 env/
 ENV/
 wandb/
+.env
 
 dataset.csv
