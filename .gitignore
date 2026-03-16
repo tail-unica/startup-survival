@@ -1,0 +1,8 @@
+# Ambiente virtuale Python
+.venv/
+venv/
+env/
+ENV/
+wandb/
+
+dataset.csv
