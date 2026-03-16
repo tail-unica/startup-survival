@@ -1,0 +1,53 @@
+
+paths:
+  raw_dataset: "data/raw/db_master_panel.csv.gz"
+  raw_university_ranking: "data/raw/QS_World_Rankings.csv"
+  dataset: "data/processed/dataset.csv"
+test_size: 0.4
+random_seed: 12
+
+# config.yaml
+sweep_settings:
+  method: bayes
+  metric:
+    name: f1
+    goal: maximize
+  parameters:
+    model_type:
+      values: ["rf","xgb","mlp"]
+    n_estimators:
+      values: [100, 200]
+    max_depth:
+      values: [10,15]
+    # min_samples_split:
+    #   distribution: int_uniform
+    #   min: 2
+    #   max: 5
+    min_samples_leaf:
+      distribution: int_uniform
+      min: 5
+      max: 10
+    learning_rate:
+      distribution: log_uniform_values
+      min: 0.01
+      max: 0.08
+    min_child_weight:
+      values: [1, 5, 10]
+    subsample:
+      values: [0.4, 0.6]
+    colsample_bytree:
+      values: [0.4, 0.6, 0.8]
+    hidden_layer_sizes:
+      values: [[64, 32], [128, 64, 32]]
+    activation:
+      values: ['relu', 'tanh']
+    solver:
+      values: ['adam', 'sgd']
+    alpha: # Regolarizzazione L2
+      distribution: log_uniform_values
+      min: 0.0001
+      max: 0.1
+    learning_rate_init:
+      distribution: log_uniform_values
+      min: 0.001
+      max: 0.005
