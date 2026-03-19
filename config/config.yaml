@@ -10,15 +10,15 @@ random_seed: 12
 sweep_settings:
   method: bayes
   metric:
-    name: f1
+    name: recall
     goal: maximize
   parameters:
     model_type:
-      values: ["rf","xgb","mlp"]
+      values: ["rf","lgb","mlp"]
     n_estimators:
-      values: [100, 200]
+      values: [50, 100]
     max_depth:
-      values: [10,15]
+      values: [3, 5, 7]
     # min_samples_split:
     #   distribution: int_uniform
     #   min: 2
@@ -32,11 +32,19 @@ sweep_settings:
       min: 0.01
       max: 0.08
     min_child_weight:
-      values: [1, 5, 10]
+      values: [5, 10, 20]
     subsample:
       values: [0.4, 0.6]
     colsample_bytree:
       values: [0.4, 0.6, 0.8]
+    reg_alpha: # Regolarizzazione L1 (XGB)
+      distribution: log_uniform_values
+      min: 0.01
+      max: 10
+    reg_lambda: # Regolarizzazione L2 (XGB)
+      distribution: log_uniform_values
+      min: 1
+      max: 10
     hidden_layer_sizes:
       values: [[64, 32], [128, 64, 32]]
     activation:
