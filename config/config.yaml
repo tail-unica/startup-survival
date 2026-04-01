@@ -13,8 +13,8 @@ sweep_settings:
     name: Fbeta_val_at_threshold
     goal: maximize
   parameters:
-    model_type: 
-      values: ["rf","lgb","mlp"]
+    model_type: #"rf","lgb","mlp","dt",
+      values: ["rf","lgb","mlp","dt","lr"]
     n_estimators:
       values: [50, 100, 200, 300]
     max_depth:
@@ -56,3 +56,17 @@ sweep_settings:
       values: ["128,64", "256,128,64", "512,256,128", "256,128"]
     batch_size: #256
       values: [128, 256, 512]
+    # DT-specific
+    dt_criterion:
+      values: ["gini", "entropy"]
+    dt_min_samples_split:
+      distribution: int_uniform
+      min: 2
+      max: 20
+    # Logistic Regression-specific
+    lr_C:
+      distribution: log_uniform_values
+      min: 0.001
+      max: 10
+    lr_penalty:
+      values: ["l1", "l2"]
