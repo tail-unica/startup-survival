@@ -6,67 +6,78 @@ paths:
 test_size: 0.4
 random_seed: 12
 
-# config.yaml
+#config.yaml
+# --- Sweep con Bayes (commentato) ---
 sweep_settings:
-  method: bayes
+  method: grid #bayes
   metric:
-    name: Fbeta_val_at_threshold
+    name: F1_val
     goal: maximize
   parameters:
-    model_type: #"rf","lgb","mlp","dt",
+    model_type: #"rf","lgb","mlp","dt","lr"
       values: ["rf","lgb","mlp","dt","lr"]
-    n_estimators:
-      values: [50, 100, 200, 300]
-    max_depth:
-      values: [3, 5, 7, 10, 15]
-    min_samples_leaf:
-      distribution: int_uniform
-      min: 2
-      max: 10
-    learning_rate:
-      distribution: log_uniform_values
-      min: 0.01
-      max: 0.3
-    min_child_weight:
-      values: [5, 10, 20]
-    subsample:
-      values: [0.4, 0.6, 0.8, 1.0]
-    colsample_bytree:
-      values: [0.4, 0.6, 0.8, 1.0]
-    reg_alpha: # Regolarizzazione L1 (XGB)
-      distribution: log_uniform_values
-      min: 0.01
-      max: 10
-    reg_lambda: # Regolarizzazione L2 (XGB)
-      distribution: log_uniform_values
-      min: 1
-      max: 10
-    # MLP-specific
-    mlp_learning_rate:  #0,001 le-3
-      distribution: log_uniform_values
-      min: 0.0001
-      max: 0.01
-    dropout_rate: #0,3
-      values: [0.1, 0.2, 0.3, 0.4, 0.5]
-    weight_decay: #0,0001 le-4
-      distribution: log_uniform_values
-      min: 0.00001
-      max: 0.01
-    hidden_sizes: # "256,128,64"
-      values: ["128,64", "256,128,64", "512,256,128", "256,128"]
-    batch_size: #256
-      values: [128, 256, 512]
-    # DT-specific
-    dt_criterion:
-      values: ["gini", "entropy"]
-    dt_min_samples_split:
-      distribution: int_uniform
-      min: 2
-      max: 20
-    # Logistic Regression-specific
-    lr_C:
-      distribution: log_uniform_values
-      min: 0.001
-      max: 10
-    lr_penalty:
-      values: ["l1", "l2"]
+    # RF-specific
+    # rf_n_estimators:
+    #   values: [50, 100, 200, 300]
+    # rf_max_depth:
+    #   values: [3, 5, 7, 10, 15]
+    # rf_min_samples_leaf:
+    #   distribution: int_uniform
+    #   min: 2
+    #   max: 10
+    # # LGB-specific
+    # lgb_n_estimators:
+    #   values: [50, 100, 200, 300]
+    # lgb_max_depth:
+    #   values: [3, 5, 7, 10, 15]
+    # # DT-specific
+    # dt_max_depth:
+    #   values: [3, 5, 7, 10, 15]
+    # dt_min_samples_leaf:
+    #   distribution: int_uniform
+    #   min: 2
+    #   max: 10
+    # learning_rate:
+    #   distribution: log_uniform_values
+    #   min: 0.01
+    #   max: 0.3
+    # min_child_weight:
+    #   values: [5, 10, 20]
+    # subsample:
+    #   values: [0.4, 0.6, 0.8, 1.0]
+    # colsample_bytree:
+    #   values: [0.4, 0.6, 0.8, 1.0]
+    # reg_alpha:
+    #   distribution: log_uniform_values
+    #   min: 0.01
+    #   max: 10
+    # reg_lambda:
+    #   distribution: log_uniform_values
+    #   min: 1
+    #   max: 10
+    # mlp_learning_rate:
+    #   distribution: log_uniform_values
+    #   min: 0.0001
+    #   max: 0.01
+    # dropout_rate:
+    #   values: [0.1, 0.2, 0.3, 0.4, 0.5]
+    # weight_decay:
+    #   distribution: log_uniform_values
+    #   min: 0.00001
+    #   max: 0.01
+    # hidden_sizes:
+    #   values: ["128,64", "256,128,64", "512,256,128", "256,128"]
+    # batch_size:
+    #   values: [128, 256, 512]
+    # dt_criterion:
+    #   values: ["gini", "entropy"]
+    # dt_min_samples_split:
+    #   distribution: int_uniform
+    #   min: 2
+    #   max: 20
+    # lr_C:
+    #   distribution: log_uniform_values
+    #   min: 0.001
+    #   max: 10
+    # lr_penalty:
+    #   values: ["l1", "l2"]
