@@ -3,6 +3,8 @@ paths:
   raw_dataset: "data/raw/db_master_panel.csv.gz"
   raw_university_ranking: "data/raw/QS_World_Rankings.csv"
   dataset: "data/processed/dataset.csv"
+  dataset_window: "data/processed/dataset_window.csv"
+
 test_size: 0.4
 random_seed: 12
 
