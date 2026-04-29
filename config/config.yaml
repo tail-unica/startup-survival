@@ -11,14 +11,14 @@ random_seed: 12
 #config.yaml
 # --- Sweep con Bayes (commentato) ---
 sweep_settings:
-  method: grid #bayes
+  method: grid  #bayes
   metric:
     name: F1_val
     goal: maximize
   parameters:
     model_type: #"rf","lgb","mlp","dt","lr"
       values: ["rf","lgb","mlp","dt","lr"]
-    # RF-specific
+    # # RF-specific
     # rf_n_estimators:
     #   values: [50, 100, 200, 300]
     # rf_max_depth:
