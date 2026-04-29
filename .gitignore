@@ -7,7 +7,12 @@ wandb/
 .env
 
 dataset.csv
+dataset_window.csv
+Company.csv
+CompanySimilarRelation.csv
 
 wandb/
 
 claude.md
+
+
