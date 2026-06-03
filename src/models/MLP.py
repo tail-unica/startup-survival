@@ -10,14 +10,13 @@ class MLP(nn.Module):
 
         self.layers = nn.ModuleList()
 
-        # Primo layer
+        # First layer
         self.layers.append(nn.Linear(input_size, hidden_sizes[0]))
         if batch_norm:
             self.layers.append(nn.BatchNorm1d(hidden_sizes[0]))
         self.layers.append(nn.Tanh())
         self.layers.append(nn.Dropout(dropout_rate))
 
-        # Layer intermedi
         for i in range(len(hidden_sizes) - 1):
             self.layers.append(nn.Linear(hidden_sizes[i], hidden_sizes[i+1]))
             if batch_norm:
@@ -25,7 +24,7 @@ class MLP(nn.Module):
             self.layers.append(nn.Tanh())
             self.layers.append(nn.Dropout(dropout_rate))
 
-        # Output layer — 1 neurone per classificazione binaria (logit, no sigmoid)
+        # Output layer
         self.layers.append(nn.Linear(hidden_sizes[-1], 1))
 
     def forward(self, x):
