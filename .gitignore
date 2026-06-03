@@ -1,18 +1,18 @@
 # Ambiente virtuale Python
 .venv/
 venv/
+.env
 env/
 ENV/
 wandb/
-.env
+img/
 
-dataset.csv
-dataset_window.csv
-Company.csv
-CompanySimilarRelation.csv
+data/processed/
 
-wandb/
+# Temporary files
+tmp/
 
-claude.md
-
-
+__pycache__/
+*.pyc
+*.pyo
+*.pyd

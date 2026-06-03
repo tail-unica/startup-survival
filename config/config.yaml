@@ -1,85 +1,149 @@
 
 paths:
-  raw_dataset: "data/raw/db_master_panel.csv.gz"
+  raw_dataset: "data/raw/panel.csv.gz"
   raw_university_ranking: "data/raw/QS_World_Rankings.csv"
-  dataset: "data/processed/dataset.csv"
   dataset_window: "data/processed/dataset_window.csv"
+  dataset_nowindow: "data/processed/dataset_nowindow.csv"
 
+time_window: 7
+last_year: 2024
 test_size: 0.4
 random_seed: 12
 
 #config.yaml
-# --- Sweep con Bayes (commentato) ---
+# --- Sweep with Bayes for find best hyperparameters (commented) ---
+# sweep_settings:
+#   method: bayes
+#   metric:
+#     name: F1_val
+#     goal: maximize
+#   parameters:
+#     model_type: 
+#       values: ["rf","lgb","mlp","dt","lr"]
+#     # RF-specific
+#     rf_n_estimators:
+#       values: [50, 100, 200, 300]
+#     rf_max_depth:
+#       values: [3, 5, 7, 10, 15]
+#     rf_min_samples_leaf:
+#       distribution: int_uniform
+#       min: 2
+#       max: 10
+#     # LGB-specific
+#     lgb_n_estimators:
+#       values: [50, 100, 200, 300]
+#     lgb_max_depth:
+#       values: [3, 5, 7, 10, 15]
+#     # DT-specific
+#     dt_max_depth:
+#       values: [3, 5, 7, 10, 15]
+#     dt_min_samples_leaf:
+#       distribution: int_uniform
+#       min: 2
+#       max: 10
+#     learning_rate:
+#       distribution: log_uniform_values
+#       min: 0.01
+#       max: 0.3
+#     min_child_weight:
+#       values: [5, 10, 20]
+#     subsample:
+#       values: [0.4, 0.6, 0.8, 1.0]
+#     colsample_bytree:
+#       values: [0.4, 0.6, 0.8, 1.0]
+#     reg_alpha:
+#       distribution: log_uniform_values
+#       min: 0.01
+#       max: 10
+#     reg_lambda:
+#       distribution: log_uniform_values
+#       min: 1
+#       max: 10
+#     mlp_learning_rate:
+#       distribution: log_uniform_values
+#       min: 0.0001
+#       max: 0.01
+#     dropout_rate:
+#       values: [0.1, 0.2, 0.3, 0.4, 0.5]
+#     weight_decay:
+#       distribution: log_uniform_values
+#       min: 0.00001
+#       max: 0.01
+#     hidden_sizes:
+#       values: ["128,64", "256,128,64", "512,256,128", "256,128"]
+#     batch_size:
+#       values: [128, 256, 512]
+#     dt_criterion:
+#       values: ["gini", "entropy"]
+#     dt_min_samples_split:
+#       distribution: int_uniform
+#       min: 2
+#       max: 20
+#     lr_C:
+#       distribution: log_uniform_values
+#       min: 0.001
+#       max: 10
+#     lr_penalty:
+#       values: ["l1", "l2"]
+
+
+
+
+# --- Best found hyperparameters  ---
 sweep_settings:
-  method: grid  #bayes
+  method: grid
   metric:
     name: F1_val
     goal: maximize
   parameters:
-    model_type: #"rf","lgb","mlp","dt","lr"
+    model_type:
       values: ["rf","lgb","mlp","dt","lr"]
-    # # RF-specific
-    # rf_n_estimators:
-    #   values: [50, 100, 200, 300]
-    # rf_max_depth:
-    #   values: [3, 5, 7, 10, 15]
-    # rf_min_samples_leaf:
-    #   distribution: int_uniform
-    #   min: 2
-    #   max: 10
-    # # LGB-specific
-    # lgb_n_estimators:
-    #   values: [50, 100, 200, 300]
-    # lgb_max_depth:
-    #   values: [3, 5, 7, 10, 15]
-    # # DT-specific
-    # dt_max_depth:
-    #   values: [3, 5, 7, 10, 15]
-    # dt_min_samples_leaf:
-    #   distribution: int_uniform
-    #   min: 2
-    #   max: 10
-    # learning_rate:
-    #   distribution: log_uniform_values
-    #   min: 0.01
-    #   max: 0.3
-    # min_child_weight:
-    #   values: [5, 10, 20]
-    # subsample:
-    #   values: [0.4, 0.6, 0.8, 1.0]
-    # colsample_bytree:
-    #   values: [0.4, 0.6, 0.8, 1.0]
-    # reg_alpha:
-    #   distribution: log_uniform_values
-    #   min: 0.01
-    #   max: 10
-    # reg_lambda:
-    #   distribution: log_uniform_values
-    #   min: 1
-    #   max: 10
-    # mlp_learning_rate:
-    #   distribution: log_uniform_values
-    #   min: 0.0001
-    #   max: 0.01
-    # dropout_rate:
-    #   values: [0.1, 0.2, 0.3, 0.4, 0.5]
-    # weight_decay:
-    #   distribution: log_uniform_values
-    #   min: 0.00001
-    #   max: 0.01
-    # hidden_sizes:
-    #   values: ["128,64", "256,128,64", "512,256,128", "256,128"]
-    # batch_size:
-    #   values: [128, 256, 512]
-    # dt_criterion:
-    #   values: ["gini", "entropy"]
-    # dt_min_samples_split:
-    #   distribution: int_uniform
-    #   min: 2
-    #   max: 20
-    # lr_C:
-    #   distribution: log_uniform_values
-    #   min: 0.001
-    #   max: 10
-    # lr_penalty:
-    #   values: ["l1", "l2"]
+    # RF
+    rf_n_estimators:
+      values: [200]
+    rf_max_depth:
+      values: [15]
+    rf_min_samples_leaf:
+      values: [9]
+    # LGB
+    lgb_n_estimators:
+      values: [300]
+    lgb_max_depth:
+      values: [5]
+    learning_rate:
+      values: [0.03092792034710772]
+    min_child_weight:
+      values: [20]
+    subsample:
+      values: [0.4]
+    colsample_bytree:
+      values: [1]
+    reg_alpha:
+      values: [7.471515240794344]
+    reg_lambda:
+      values: [3.0246578811237925]
+    # DT
+    dt_max_depth:
+      values: [5]
+    dt_min_samples_leaf:
+      values: [2]
+    dt_min_samples_split:
+      values: [9]
+    dt_criterion:
+      values: ["entropy"]
+    # LR
+    lr_C:
+      values: [0.29719610165875604]
+    lr_penalty:
+      values: ["l2"]
+    # MLP
+    hidden_sizes:
+      values: ["512,256,128"]
+    mlp_learning_rate:
+      values: [0.006481694307849973]
+    dropout_rate:
+      values: [0.3]
+    weight_decay:
+      values: [0.00012295217130781902]
+    batch_size:
+      values: [256]
