@@ -7,7 +7,7 @@ ENV/
 wandb/
 img/
 
-data/processed/
+data/raw/panel.csv.gz
 
 # Temporary files
 tmp/
