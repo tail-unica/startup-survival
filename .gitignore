@@ -1,9 +1,5 @@
-# Ambiente virtuale Python
 .venv/
 venv/
-.env
-env/
-ENV/
 wandb/
 img/
 
