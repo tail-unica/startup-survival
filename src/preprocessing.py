@@ -72,7 +72,7 @@ def IsInTop50Institutes(university,top_50_universities):
         acrP = None
     
     uniP = str(university).lower()
-    uniP = re.sub(r"\(.*?\)", "", uniP)  # revomove text between parentheses
+    uniP = re.sub(r"\(.*?\)", "", uniP)  # remove text between parentheses
     uniP = uniP.replace("university", "") \
             .replace("of", "") \
             .replace("the", "") \
@@ -153,11 +153,11 @@ def getFlagTop50Institute(InstituteList,top_50_universities):
 
     if InstituteList==None or InstituteList=='' or not isinstance(InstituteList, str):
         return False
-    lista = InstituteList.split(';')
+    institutes = InstituteList.split(';')
 
-    lista=list(set(lista))
+    institutes=list(set(institutes))
 
-    for uni in lista:
+    for uni in institutes:
         if(IsInTop50Institutes(uni,top_50_universities)):
             return True
     return False
@@ -400,9 +400,9 @@ def handleMissingValues(dataset, flag_no_time_window):
     )
 
     # For these variables, it was decided to impute missing values to 0
-    variabili_toInt = [ 'N_Competitors','Same_Country'] 
+    cols_toInt = [ 'N_Competitors','Same_Country'] 
     datasetWithNoMissingValues = datasetWithNoMissingValues.with_columns(
-        [pl.col(name).cast(pl.Int64).fill_null(0) for name in variabili_toInt]
+        [pl.col(name).cast(pl.Int64).fill_null(0) for name in cols_toInt]
     )
 
     # Impute missing values in 'SimilarityScoreMean' with the mean of the column
