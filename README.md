@@ -86,7 +86,7 @@ The code was developed and tested with **Python 3.12**.
 
 ```bash
 # 1. Clone the repository
-git clone <repository-url>
+git clone https://github.com/tail-unica/startup-survival
 cd startup-survival
 
 # 2. Create and activate a virtual environment
@@ -103,7 +103,13 @@ Key dependencies (see `requirements.txt` for exact versions): `polars`,
 
 ## Configuration
 
-Experiment tracking and hyperparameter sweeps use **Weights & Biases**. Fill the `.env` in your own entity and project.
+Experiment tracking and hyperparameter sweeps use **Weights & Biases**. 
+
+If you don't have an account, create one at https://wandb.ai/site
+
+Then follow the instructions on the website to create an **entity** and a **project**
+
+Fill the `.env` with your own entity and project.
 
 Then log in once:
 
@@ -111,9 +117,9 @@ Then log in once:
 wandb login
 ```
 
-All paths, the look-back window (`time_window: 7`), the final year
-(`last_year: 2024`), the test split (`test_size: 0.4`), the random seed
-(`random_seed: 12`) and the hyperparameter grids are defined in
+All paths, the look-back window (`time_window`), the final year
+(`last_year`), the test split (`test_size`), the random seed
+(`random_seed`) and the hyperparameter grids are defined in
 `config/config.yaml`.
 
 ## Step-by-step usage
