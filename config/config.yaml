@@ -4,6 +4,7 @@ paths:
   raw_university_ranking: "data/raw/QS_World_Rankings.csv"
   dataset_window: "data/processed/dataset_window.csv"
   dataset_nowindow: "data/processed/dataset_nowindow.csv"
+  dataset_window_multi: "data/processed/dataset_window_multi.csv"
 
 time_window: 7
 last_year: 2024

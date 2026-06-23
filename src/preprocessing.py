@@ -451,7 +451,7 @@ def handleMissingValues(dataset, flag_no_time_window):
     return datasetWithNoMissingValues
 
 
-def preprocessDataset(dataset, university_ranking_path, flag_no_time_window=False):
+def preprocessDataset(dataset, university_ranking_path, flag_no_time_window=False,multiclass=False):
   
     '''
     This function takes the initial dataset and the path of the raw QS world university ranking file, and performs the following preprocessing steps:
@@ -499,6 +499,10 @@ def preprocessDataset(dataset, university_ranking_path, flag_no_time_window=Fals
     datasetWithNoMissingValues = handleMissingValues(datasetWithNoCategories, flag_no_time_window)
     
 
+    if(multiclass):
+        # If we want to create a multiclass dataset, we keep the target variable as it is, without encoding it as binary
+        return datasetWithNoMissingValues
+    
     # Create the final dataset by encoding the target variable as binary (1 for "Later" and "Exit"  (Success), 0 for "Steady")
     finalDataset = datasetWithNoMissingValues.with_columns(
         pl.when(pl.col("Target").is_in(["Later", "Exit"]))
