@@ -98,7 +98,7 @@ sweep_settings:
     goal: maximize
   parameters:
     model_type:
-      values: ["rf","lgb","mlp","dt","lr"]
+      values: ["rf","lgb","mlp","dt","lr","TFPN"]
     # RF
     rf_n_estimators:
       values: [200]
@@ -148,3 +148,15 @@ sweep_settings:
       values: [0.00012295217130781902]
     batch_size:
       values: [256]
+    # TFPN
+    thinking_mode: 
+      values: [True]
+    thinking_effort: 
+      values: ["high"]
+    thinking_timeout_s:        # budget fit: 10 min
+      values: [600]
+    thinking_metric:
+      values: ["roc_auc"]
+    # Learning curve
+    train_size:
+      values: [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]
