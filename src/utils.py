@@ -565,3 +565,35 @@ def make_nested_subsampler(y, seed):
         return np.sort(np.array(idx, dtype=int))
 
     return subsample
+
+
+def plot_learning_curves(store, tag, metrics=("F1", "AUC")):
+    """Costruisce i chart delle learning curve da learning_curve_store.
+
+    store: dict con chiavi (model_type, tag, train_size) e valori dict di metriche.
+    tag:   esperimento da filtrare (es. "window").
+    metrics: stringa singola o iterabile di nomi metrica.
+    Restituisce una Figure con un asse per metrica e una linea (colore distinto)
+    per model_type, x = train_size.
+    """
+    metrics = [metrics] if isinstance(metrics, str) else list(metrics)
+    keys = [(m, t, k) for (m, t, k) in store if t == tag]
+    models = sorted({m for (m, _t, _k) in keys})
+    cmap = plt.get_cmap("tab10")
+    colors = {m: cmap(i % 10) for i, m in enumerate(models)}
+
+    fig, axes = plt.subplots(1, len(metrics), figsize=(7 * len(metrics), 5), squeeze=False)
+    for ax, metric in zip(axes[0], metrics):
+        for m in models:
+            pts = sorted(((k, store[(m, tag, k)][metric]) for (mm, _t, k) in keys if mm == m),
+                         key=lambda p: p[0])
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            ax.plot(xs, ys, marker="o", color=colors[m], label=m)
+        ax.set_xlabel("train_size")
+        ax.set_ylabel(metric)
+        ax.set_title(f"Learning curve — {metric} ({tag})")
+        ax.grid(alpha=0.3)
+        ax.legend()
+    fig.tight_layout()
+    return fig
