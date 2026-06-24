@@ -542,3 +542,26 @@ def compare_metrics(metrics_store, tag_a, tag_b,
     df.insert(0, "Model", df.index)
     df = df.reset_index(drop=True)
     return df
+
+
+def make_nested_subsampler(y, seed):
+    """Restituisce subsample(k) -> indici posizionali del train pool.
+
+    I sottocampioni sono stratificati (rispettano le proporzioni di classe di y),
+    annidati (sub(k1) e' sottoinsieme di sub(k2) per k1 < k2) e deterministici
+    dato lo stesso seed. Usato per costruire le learning curve.
+    """
+    rng = np.random.RandomState(seed)
+    y = np.asarray(y)
+    classes, counts = np.unique(y, return_counts=True)
+    fractions = counts / counts.sum()
+    order = {c: rng.permutation(np.where(y == c)[0]) for c in classes}  # shuffle una volta
+
+    def subsample(k):
+        idx = []
+        for c, frac in zip(classes, fractions):
+            n_c = min(int(round(k * frac)), len(order[c]))
+            idx.extend(order[c][:n_c])  # prefisso -> annidato
+        return np.sort(np.array(idx, dtype=int))
+
+    return subsample
