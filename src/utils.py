@@ -372,74 +372,36 @@ def get_probs(loader, model, device):
 def _order_metrics(keys):
     """
     Reorder metric keys to the paper's column order:
-    AUC, F1 (test), Prec (test), Rec (test), Acc (test), Acc (train).
+    AUC, AP, PR-AUC, AP lift, F1 (test), Prec (test), Rec (test),
+    Acc (test), Acc (train), prevalence.
     Matching is case-insensitive on substrings; unmatched keys are appended.
     """
     def _slot(k):
         s = k.lower().replace("_", " ").replace("-", " ")
         is_train = "train" in s
+        # order matters: the specific PR-space keys must be tested before the
+        # generic 'auc' / 'prec' checks, which would otherwise swallow them.
+        if "lift" in s:
+            return 3
+        if "pr auc" in s:
+            return 2
+        if "average precision" in s or s.strip() == "ap":
+            return 1
+        if "prevalence" in s:
+            return 9
         if "auc" in s:
             return 0
         if "f1" in s or "f_1" in s or s.strip() == "f1":
-            return 1
+            return 4
         if "prec" in s:
-            return 2
+            return 5
         if "rec" in s:                       # recall (not 'prec')
-            return 3
+            return 6
         if "acc" in s:
-            return 5 if is_train else 4
+            return 8 if is_train else 7
         return 99
 
     return sorted(keys, key=lambda k: (_slot(k), k.lower()))
-
-
-def _order_metrics(keys):
-    """
-    Reorder metric keys to the paper's column order:
-    AUC, F1 (test), Prec (test), Rec (test), Acc (test), Acc (train).
-    Matching is case-insensitive on substrings; unmatched keys are appended.
-    """
-    def _slot(k):
-        s = k.lower().replace("_", " ").replace("-", " ")
-        is_train = "train" in s
-        if "auc" in s:
-            return 0
-        if "f1" in s or "f_1" in s or s.strip() == "f1":
-            return 1
-        if "prec" in s:
-            return 2
-        if "rec" in s:                       # recall (not 'prec')
-            return 3
-        if "acc" in s:
-            return 5 if is_train else 4
-        return 99
-
-    return sorted(keys, key=lambda k: (_slot(k), k.lower()))
-
-
-def _order_metrics(keys):
-    """
-    Reorder metric keys to the paper's column order:
-    AUC, F1 (test), Prec (test), Rec (test), Acc (test), Acc (train).
-    Matching is case-insensitive on substrings; unmatched keys are appended.
-    """
-    def _slot(k):
-        s = k.lower().replace("_", " ").replace("-", " ")
-        is_train = "train" in s
-        if "auc" in s:
-            return 0
-        if "f1" in s or "f_1" in s or s.strip() == "f1":
-            return 1
-        if "prec" in s:
-            return 2
-        if "rec" in s:                       # recall (not 'prec')
-            return 3
-        if "acc" in s:
-            return 5 if is_train else 4
-        return 99
-
-    return sorted(keys, key=lambda k: (_slot(k), k.lower()))
-
 
 def compare_metrics(metrics_store, tag_a, tag_b,
                     metric_order=None, model_order=None,
@@ -450,7 +412,13 @@ def compare_metrics(metrics_store, tag_a, tag_b,
 
     Layout: for each model, a baseline row (tag_a) followed by a "w/o window"
     row (tag_b) showing 'value(+x.x%)' with the relative change. Metrics are in
-    columns (AUC, F1, Prec., Rec., Acc.test, Acc.train), not in rows.
+    columns (AUC, AP, PR-AUC, AP lift, F1, Prec., Rec., Acc.test, Acc.train),
+    not in rows.
+
+    Note on cross-setting comparability: AP, precision and F1 all depend on the
+    positive-class prevalence, which differs between the window and no-window
+    settings. AUC and AP lift (AP normalised by prevalence) are the columns that
+    remain comparable across settings.
 
     :param metrics_store: dict {(model_type, tag): {metric_name: value}}
     :param tag_a:         reference experiment tag (e.g. "window")
@@ -511,7 +479,10 @@ def compare_metrics(metrics_store, tag_a, tag_b,
         if metric_order is not None:
             metrics = metric_order
         else:
-            drop = {"F1_train", "F1_val", "average_precision"}
+            # "prevalence" is dataset context, not a performance metric: it is kept
+            # in metrics_store (and reported in the caption) but not shown as a
+            # column with a relative-change annotation.
+            drop = {"F1_train", "F1_val", "prevalence"}
             metrics = _order_metrics([k for k in a.keys() if k not in drop])
         if cols is None:
             cols = metrics
