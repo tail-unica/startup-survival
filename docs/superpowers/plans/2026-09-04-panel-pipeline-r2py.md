@@ -539,12 +539,10 @@ Expected: FAIL with `ImportError: cannot import name 'cumany'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Append to `src/panel/rutils.py`:
+Append to `src/panel/rutils.py`. Put `import numpy as np` **at the top of the
+module** with the existing imports — only the functions go at the end:
 
 ```python
-import numpy as np
-
-
 def cumany(col: pl.Expr) -> pl.Expr:
     """dplyr ``cumany``. Callers apply ``.over(group)`` themselves.
 
@@ -820,8 +818,6 @@ not, but others do) and an inferred integer key breaks joins silently.
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 import polars as pl
 
@@ -1382,7 +1378,8 @@ Expected: FAIL with `ImportError: cannot import name 'CHECKPOINTS'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Append to `src/panel/validate.py`:
+Append to `src/panel/validate.py`. Add `from src.panel.config import PanelConfig`
+to the imports at the top of the module — Task 4 did not need it, this task does:
 
 ```python
 @dataclass(frozen=True)
@@ -1527,7 +1524,16 @@ git commit -m "feat(panel): add checkpoint registry, partial checks and CLI"
 
 **Interfaces:**
 - Consumes: `PanelConfig`, `read_raw`, `to_num`, `as_na`, `parse_date_r`, `R_NA`, `R_NA_NAN`.
-- Produces: `run(cfg: PanelConfig) -> None`, writing `db_master_1_v1.parquet` and `db_master_2_skeleton.parquet`.
+- Produces: `run(cfg: PanelConfig) -> None`, writing three parquets:
+  `db1.parquet` (the Company frame **before** the `YearFounded > 1999` filter,
+  columns `CompanyID` and `YearFounded` only), `db_master_1_v1.parquet` and
+  `db_master_2_skeleton.parquet`.
+
+**Why `db1.parquet` exists.** `1_Arrange_DB.R:448` joins `YearFounded` onto the
+team table from `db1` — the *unfiltered* company frame — while `db_master_1` has
+by then been cut to `YearFounded > 1999`. Task 7 needs the unfiltered version:
+using the filtered one would drop the people of older companies and change
+`db3`. Persist it here rather than re-reading the 184 MB `Company.csv` twice.
 
 **R source:** `1_Arrange_DB.R:37-238`.
 
@@ -1591,7 +1597,11 @@ def test_stage1_outputs_have_the_expected_shape():
     assert m1["CompanyID"].n_unique() == 116_920
     assert m1["YearFounded"].min() > 1999
     assert skel["YearFounded"].min() > 1999
-    assert (skel.filter(pl.col("Delta") < 0).height, skel.filter(pl.col("Delta") < 0)["CompanyID"].n_unique()) == (245, 106)
+    # R's descending seq() must have produced some negative Delta. The exact
+    # 245 rows / 106 companies were measured on the FINAL db_master_2.csv, so
+    # they are asserted at checkpoint C, not here: stage 2b's full_join can
+    # still change the row count.
+    assert skel.filter(pl.col("Delta") < 0).height > 0
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -2281,9 +2291,13 @@ Three strategies:
   random_state=cfg.seed)`: same predictors, same p95 winsorisation, same
   cap at the per-`DealTypeGrouped` third quartile. Makes the pipeline
   standalone and measures how far an equivalent re-run lands from R's.
-- `r_injected` — take `TotalRaised_Est` and friends from `db_master_2.csv`,
-  isolating the RF as the only known divergence so everything downstream can
-  be verified exactly.
+- `r_injected` — **at deal level this is a no-op**: it returns the frame with
+  `TotalInvestedCapital_Est` equal to `TotalInvestedCapital` and
+  `TotalInvestedCapital_WasImputed` all `False`. The injection cannot happen
+  here because the R reference only exists aggregated: stage 4 overwrites the
+  three `TotalRaised_Est*` columns from `db_master_2.csv` *after* building
+  `deals_panel`. This isolates the RF as the only known divergence so
+  everything downstream verifies exactly.
 - `leakage_free` — raises `NotImplementedError`. Phase 2.
 
 - [ ] **Step 1: Write the failing test**
@@ -2388,8 +2402,9 @@ drop `Zero_Invested` rows from it, winsorise the four `winsor_vars` at the
 `RandomForestRegressor(n_estimators=50, random_state=cfg.seed)`, predict on the
 rows where `TotalInvestedCapital_Est` is null **and** `UndisclosedAmountFlag == 1`
 **and** all predictors are present, then cap each prediction at its group's
-third quartile. `r_injected` skips the model and reads the aggregates from
-`db_master_2.csv` in stage 4 instead; `leakage_free` raises
+third quartile. `r_injected` skips the model entirely and returns the frame unchanged with
+`TotalInvestedCapital_WasImputed` all `False` — stage 4 does the injection on
+the aggregates. `leakage_free` raises
 `NotImplementedError("leakage_free imputation is phase 2")`.
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -2436,7 +2451,11 @@ git commit -m "feat(panel): add pluggable TotalInvestedCapital imputation"
   and under 90% missing become `"Other"`. These thresholds come from global
   statistics — record that in a comment; it is the same family of problem as
   the RF, and phase 2 revisits it.
-- Imputation via `impute_total_invested`.
+- Imputation via `impute_total_invested`. Under `r_injected` that call is a
+  no-op; after `deals_panel` is built, overwrite its `TotalRaised_Est`,
+  `TotalRaised_Est_NA` and `TotalRaised_Est_any` columns with the values joined
+  from `db_master_2.csv` on `(CompanyID, Year_Delta)`. Under `r_legacy` leave
+  the computed values alone.
 - Deal-type flags (lines 1125-1151) and `deals_panel` (lines 1153-1209).
   The six `TotalRaised` variants have three distinct missing semantics:
   `sum(na.rm = TRUE)`; null if **all** are null; null if **any** is null.
@@ -2454,9 +2473,24 @@ from src.panel.validate import run_partial
 
 
 def test_zero_invested_rule_selects_the_measured_deal_types():
+    """The >90%-missing rule must select exactly these 21 deal types.
+
+    Measured during design over the 285,336 deals of companies founded after
+    2000. A change here means the rule or the upstream filter drifted.
+    """
+    from src.panel.stage4_deals import zero_invested_deal_types
+
     cfg = PanelConfig()
-    deals = pl.read_parquet(cfg.interim("deals_panel.parquet"))
-    assert deals.height > 0
+    assert sorted(zero_invested_deal_types(cfg)) == [
+        "Bankruptcy: Admin/Reorg", "Bankruptcy: Liquidation", "Buyout/LBO",
+        "Corporate Asset Purchase", "Corporate Licensing", "Debt Repayment",
+        "GP Stakes", "Investor Buyout by Management", "Joint Venture",
+        "Merger of Equals", "Merger/Acquisition", "Out of Business",
+        "Platform Creation", "Product Crowdfunding",
+        "Sale-Lease back facility", "Secondary Transaction - Open Market",
+        "Secondary Transaction - Private", "Spin-Off", "Undetermined",
+        "University Spin-Out", "Working Capital",
+    ]
 
 
 def test_total_raised_variants_have_distinct_missing_semantics():
