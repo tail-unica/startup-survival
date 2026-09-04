@@ -12,3 +12,8 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.txt
+
+# Dati sorgente PitchBook e output intermedi degli script R (non redistribuibili)
+config/RCode/
+data/interim/
