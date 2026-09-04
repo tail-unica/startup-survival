@@ -16,7 +16,9 @@ successiva, abilitate da flag già predisposti ma spenti di default.
 
 Il criterio di successo è verificabile, non dichiarativo: i CSV
 intermedi prodotti dagli script R sono disponibili e fanno da ground
-truth in tre checkpoint indipendenti.
+truth in quattro checkpoint indipendenti, più verifiche parziali per
+colonna negli stadi che non hanno un file di riferimento dedicato
+(§8).
 
 ### Cosa è fuori scope
 
@@ -110,6 +112,7 @@ importante, dato il volume dei dati.
 stage1  Company, CompanyAffiliateRelation
           -> db_master_1_v1.parquet        (cross-section, YearFounded > 1999)
           -> db_master_2_skeleton.parquet  (azienda x anno + variabili time-varying)
+                                           [verifica parziale per colonna]
 
 stage2  CompanyBoardTeamRelation, Person, PersonEducationRelation,
         PersonPositionRelation, db_master_1_v1
@@ -124,6 +127,7 @@ stage3  CompanySimilarRelation, CompanyEmployeeHistoryRelation,
 stage4  Deal, DealInvestorRelation, Investor
           -> deals_panel.parquet
           -> db_master_2_deals.parquet     (+ TR_D)
+                                           [verifica parziale per colonna]
 
 stage5  tutto lo script 2
           -> db_master_2.parquet           [CHECKPOINT C]
@@ -409,63 +413,153 @@ selezionabili da `PanelConfig.imputation_strategy`:
 pipeline è autonoma dai CSV R. Il notebook la commuta esplicitamente a
 `r_injected` nella cella di validazione dei checkpoint C e D.
 
-## 8. Validazione
+## 8. Fasi di verifica
 
-I CSV in `config/RCode/DatiIntermedi/` sono gli output degli script R e
-fanno da ground truth.
+Ogni stadio termina con una fase di verifica che confronta il proprio
+output con il file R corrispondente e dice, in modo esplicito, **quali
+colonne divergono e su quante righe**. La pipeline non prosegue allo
+stadio successivo se la verifica precedente non è passata, salvo
+forzatura esplicita.
 
-| checkpoint | fine stadio | file di riferimento | righe attese |
-|---|---|---|---|
-| A | 2 | `db3.csv` | 534.851 |
-| B | 3 | `db_master_1.csv` | 116.920 |
-| C | 5 | `db_master_2.csv` | 1.001.625 |
-| D | 5 | `db_selected.csv` | 1.001.625 |
+### 8.1 I file di riferimento
 
-Attenzione al checkpoint A: `db3.csv` è `db3` **non filtrato**. Il
-filtro `YearFounded > 2000` si applica a `db3_expanded`, cioè al panel
-team, non alla tabella persona-azienda che viene salvata.
+I CSV in `config/RCode/DatiIntermedi/` sono la ground truth.
 
-`db_final` non ha un file di riferimento, ma è `db_selected` in left
-join con 22 colonne di `db_master_1`: entrambi validati, quindi
-`db_final` è verificato per costruzione.
+| checkpoint | fine stadio | file di riferimento | righe attese | chiave |
+|---|---|---|---|---|
+| A | 2 | `db3.csv` | 534.851 | `(CompanyID, PersonID)` |
+| B | 3 | `db_master_1.csv` | 116.920 | `CompanyID` |
+| C | 5 | `db_master_2.csv` | 1.001.625 | `(CompanyID, Year_Delta)` |
+| D | 5 | `db_selected.csv` | 1.001.625 | `(CompanyID, Year_Delta)` |
 
-Non esiste un checkpoint fra lo stadio 3 e il 5, ma molte colonne di
-`db_master_2` sono definitive già prima della fine (per esempio
-`EmployeeCount` e `N_News` non cambiano più dopo lo stadio 3). La
-validazione è quindi **per colonna oltre che per checkpoint**: dopo
-ogni stadio si confrontano le colonne già stabilizzate contro
-`db_master_2.csv`, così una divergenza si localizza presto invece di
-emergere solo alla fine.
+Tre avvertenze sui riferimenti:
 
-### Cosa produce `validate.py`
+- **`db3.csv` è `db3` non filtrato.** Il filtro `YearFounded > 2000` si
+  applica a `db3_expanded`, cioè al panel team, non alla tabella
+  persona-azienda che viene salvata.
+- **`db_master.csv` non è un target.** I due script R non scrivono
+  alcun CSV: fanno solo `save()` di `.RData`, e i quattro file sopra
+  sono stati esportati a parte. `db_master.csv` ha una colonna indice
+  di R, 113.890 righe e uno schema diverso (`Is_Startup`, `Is_IPO`,
+  `Time`, `Out_of_Business`, `Employee`, `NetDebt`): proviene da una
+  versione precedente della pipeline e va ignorato.
+- **`db_final` non ha un riferimento**, ma è `db_selected` in left join
+  con 22 colonne di `db_master_1`: entrambi verificati, quindi è
+  verificato per costruzione. La verifica si limita a controllare che
+  il join non abbia duplicato righe.
 
-Per ogni confronto:
+### 8.2 Verifiche parziali negli stadi senza riferimento
 
-- conteggio righe atteso e ottenuto;
-- chiavi mancanti e in eccesso via anti-join sulla chiave naturale
-  (`CompanyID` + eventualmente `Year_Delta` o `PersonID`);
-- per colonna: tipo, percentuale di match esatto per stringhe,
-  booleani e interi; per i float `max|diff|` e percentuale entro
-  tolleranza relativa `1e-9`;
-- allineamento dei NA: percentuale di celle in cui entrambi sono NA,
-  solo l'uno, solo l'altro. Questo va tenuto separato dal confronto dei
-  valori, perché il grosso del rischio di traduzione sta proprio nella
-  semantica dei missing;
-- per ogni colonna che non torna, le prime `N` righe divergenti.
+Gli stadi 1 e 4 non hanno un file dedicato, ma molte colonne di
+`db_master_2` sono già definitive prima della fine: `EmployeeCount` e
+`N_News`, per esempio, non cambiano più dopo lo stadio 3. Aspettare il
+checkpoint C significherebbe scoprire alla fine un errore nato
+all'inizio.
 
-I float non coincideranno bit a bit: i CSV sono stati scritti da R con
-precisione finita. La tolleranza relativa `1e-9` distingue il rumore di
-serializzazione da una divergenza reale; scarti maggiori sono findings.
+`validate.py` mantiene quindi una mappa `COLUMN_FINALISED_AT_STAGE`,
+che associa a ogni colonna di `db_master_2` lo stadio dopo il quale non
+viene più toccata. La mappa si compila mentre si implementa ciascuno
+stadio, perché in quel momento si sa esattamente quali colonne si
+scrivono, e va tenuta allineata al codice.
 
-L'esito atteso, per checkpoint:
+Ogni verifica parziale confronta l'output corrente con
+`db_master_2.csv` e classifica le colonne in tre gruppi:
+
+- **verificate** — già definitive a questo stadio e coincidenti;
+- **attese diverse** — non ancora definitive; la divergenza è normale e
+  viene riportata ma non conta come errore;
+- **regressioni** — già definitive a uno stadio precedente ma ora
+  divergenti. Questo è il caso interessante: significa che uno stadio
+  successivo ha sporcato una colonna che doveva essere ferma.
+
+### 8.3 Cosa produce una verifica
+
+`verify(actual, reference, key) -> VerificationReport` restituisce tre
+livelli, che il notebook stampa in ordine.
+
+**Livello 1 — sommario.** Una riga di esito, `PASS` o `FAIL`, seguita
+da: righe attese e ottenute; numero di chiavi presenti solo in R e solo
+in Python; numero di colonne presenti solo da un lato; numero di
+colonne divergenti su totale confrontate.
+
+**Livello 2 — dettaglio per colonna.** Una tabella con una riga per
+colonna, **ordinata per numero di righe divergenti decrescente**, così
+il problema peggiore è il primo che si legge:
+
+| colonna | tipo R | tipo PY | righe confrontate | righe diverse | % | solo R è NA | solo PY è NA | max diff |
+|---|---|---|---|---|---|---|---|---|
+
+Le colonne che coincidono al 100% sono riassunte in una riga di
+conteggio invece che elencate una per una: con ~97 colonne, l'elenco
+completo nasconderebbe le poche che contano.
+
+Le due colonne `solo R è NA` / `solo PY è NA` sono separate dal
+conteggio dei valori diversi ed è deliberato: il grosso del rischio di
+traduzione sta nella semantica dei missing, e un disallineamento di NA
+è un sintomo diverso da un valore sbagliato. Serve poterli distinguere
+a colpo d'occhio.
+
+**Livello 3 — esempi.** Per ogni colonna divergente, le prime `N`
+righe (default 10) con la chiave, il valore R e il valore Python.
+Con la chiave si risale immediatamente all'azienda e all'anno e si
+riesegue il singolo caso a mano.
+
+Il report è anche serializzato in `data/interim/reports/<checkpoint>.json`,
+così due esecuzioni successive sono confrontabili e si vede se una
+correzione ha migliorato o peggiorato la situazione.
+
+### 8.4 Regole di confronto
+
+- **Allineamento per chiave, mai per posizione.** Il confronto avviene
+  dopo un join sulla chiave naturale: l'ordine delle righe non deve
+  contare. Le chiavi non appaiate si contano a parte e non inquinano le
+  statistiche per colonna.
+- **Float.** I CSV sono stati scritti da R con precisione finita:
+  l'uguaglianza bit a bit non si darà mai. Si confronta con tolleranza
+  relativa `1e-9`, che distingue il rumore di serializzazione da una
+  divergenza reale. Si riporta comunque `max|diff|`, perché una
+  colonna "entro tolleranza" con un massimo sospetto merita
+  un'occhiata.
+- **Stringhe e il problema del token `NA`.** `write.csv` scrive un
+  missing come `NA` non quotato e la stringa letterale `"NA"` come `NA`
+  quotato, ma il parser CSV di polars rimuove le virgolette prima del
+  confronto: **i due casi sono indistinguibili nel riferimento.** Non è
+  teorico — `Institute` è costruita con `paste(unique(...))` che
+  include i NA come testo, e una persona con soli istituti mancanti
+  produce una cella esattamente uguale a `"NA"`.
+  Risoluzione: le colonne stringa si confrontano in forma
+  **normalizzata alla serializzazione R** — il riferimento si legge con
+  `null_values=[]`, e sul lato Python i null si mappano al token `NA`
+  prima del confronto. Così il confronto è ben definito da entrambi i
+  lati. Il report conta a parte le celle esattamente uguali a `NA`,
+  perché su quelle la verifica non può distinguere null da stringa: è
+  un limite del formato del riferimento, non della pipeline, e va
+  dichiarato invece che nascosto.
+- **Booleani.** R serializza `TRUE`/`FALSE`; il parsing va forzato,
+  non lasciato all'inferenza, per non confrontare stringhe con
+  booleani e ottenere un falso 100% di divergenza.
+
+### 8.5 Esito atteso
 
 - **A** e **B** — coincidenza integrale in ogni caso: non dipendono dai
   deal, quindi la strategia di imputazione è irrilevante.
 - **C** e **D** — coincidenza integrale con `r_injected`. Con
   `r_legacy` coincidono tutte le colonne tranne le sei di
-  `TotalRaised_Est*`, per le quali il report riporta quante righe
+  `TotalRaised_Est*`, per le quali il report dice quante righe
   divergono e di quanto: quella misura è il risultato utile, non un
-  fallimento della validazione.
+  fallimento della verifica. Il report marca quelle sei colonne come
+  divergenza attesa, così `FAIL` resta un segnale affidabile.
+
+### 8.6 Interfaccia
+
+- `python -m src.panel.validate --checkpoint C` esegue una verifica
+  singola da riga di comando e stampa i tre livelli.
+- `report.assert_clean()` solleva un'eccezione se ci sono divergenze
+  non attese: è la chiamata che blocca l'avanzamento allo stadio
+  successivo.
+- `PanelConfig.ignore_failed_checks = True` forza l'avanzamento. Serve
+  quando si vuole vedere l'effetto a valle di una divergenza nota
+  invece di fermarsi al primo stadio che la produce.
 
 ## 9. Primitive R → polars
 
