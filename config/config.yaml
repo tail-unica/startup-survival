@@ -8,7 +8,37 @@ paths:
 time_window: 7
 last_year: 2024
 test_size: 0.4
+
+# Seed for the hyperparameter search and for anything outside the sweep. The
+# best configurations below were found on this split, so it is deliberately kept
+# OUT of the evaluation seeds: tuning and reporting never share a split.
 random_seed: 12
+
+# Evaluation seeds. Each sweep run draws one, and it drives both the
+# train/val/test split and every model's randomness, so the five runs of a model
+# are five independent replications. Results are reported as mean +- std across
+# them, which is what tells a real gap between two models from split noise.
+seeds: [1, 2, 3, 4, 5]
+
+# Budget for shap.PermutationExplainer, used by SVM and TabPFN (the models that
+# admit neither TreeExplainer nor LinearExplainer). It costs
+# n_explain * (2*n_features+1) * n_background rows of prediction, which is a
+# different currency for the two models, hence one budget each:
+#
+#  - svm    pays CPU time locally. 100 x 91 x 20 = 182k rows against ~12k
+#           support vectors takes about 8 minutes.
+#  - tabpfn pays Prior Labs API credits, billed roughly
+#           rows * n_features * n_estimators, against a 50M/day cap. One pass
+#           over the three splits already costs ~11M, so the SHAP budget has to
+#           leave room for the four experiments (window, nowindow, noteam,
+#           nocompetitors): 30 x 91 x 8 = 21.8k rows ~ 7.9M credits per run.
+shap_permutation:
+  svm:
+    n_explain: 100
+    n_background: 20
+  tabpfn:
+    n_explain: 30
+    n_background: 8
 
 #config.yaml
 # --- Sweep with Bayes for find best hyperparameters (commented) ---
@@ -19,7 +49,12 @@ random_seed: 12
 #     goal: maximize
 #   parameters:
 #     model_type: 
-#       values: ["rf","lgb","mlp","dt","lr"]
+#       values: ["rf","lgb","mlp","dt","lr","svm","tabpfn"]
+#     # Single fixed value on purpose: listing several seeds here would let bayes
+#     # optimise the seed and report the luckiest split, which is exactly the
+#     # noise the multi-seed evaluation is meant to expose.
+#     seed:
+#       values: [12]
 #     # RF-specific
 #     rf_n_estimators:
 #       values: [50, 100, 200, 300]
@@ -85,6 +120,16 @@ random_seed: 12
 #       max: 10
 #     lr_penalty:
 #       values: ["l1", "l2"]
+#     # SVM-specific
+#     svm_C:
+#       distribution: log_uniform_values
+#       min: 0.01
+#       max: 100
+#     svm_gamma:
+#       values: ["scale", "auto", 0.01, 0.1]
+#     # TabPFN-specific (v2 served through the Prior Labs API)
+#     tabpfn_n_estimators:
+#       values: [4, 8, 16]
 
 
 
@@ -97,7 +142,10 @@ sweep_settings:
     goal: maximize
   parameters:
     model_type:
-      values: ["rf","lgb","mlp","dt","lr"]
+      values: ["rf","lgb","mlp","dt","lr","svm","tabpfn"]
+    # Crossed with model_type by the grid: 7 models x 5 seeds = 35 runs.
+    seed:
+      values: [1, 2, 3, 4, 5]
     # RF
     rf_n_estimators:
       values: [200]
@@ -147,3 +195,12 @@ sweep_settings:
       values: [0.00012295217130781902]
     batch_size:
       values: [256]
+    # SVM — placeholder defaults, not yet tuned: re-run the bayes sweep above
+    # to replace them with the best found configuration.
+    svm_C:
+      values: [1.0]
+    svm_gamma:
+      values: ["scale"]
+    # TabPFN — 8 is the client default ensemble size.
+    tabpfn_n_estimators:
+      values: [8]

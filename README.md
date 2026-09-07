@@ -30,9 +30,10 @@ families:
 - **`noteam`** — team-related features removed;
 - **`nocompetitors`** — competition-related features removed.
 
-For every setting we train five model families — Random Forest (`rf`), LightGBM
-(`lgb`), a Multi-Layer Perceptron (`mlp`), Decision Tree (`dt`), and Logistic
-Regression (`lr`), tune them with a Weights & Biases sweep, and interpret them
+For every setting we train seven model families — Random Forest (`rf`), LightGBM
+(`lgb`), a Multi-Layer Perceptron (`mlp`), Decision Tree (`dt`), Logistic
+Regression (`lr`), an RBF-kernel Support Vector Machine (`svm`), and TabPFN
+(`tabpfn`), tune them with a Weights & Biases sweep, and interpret them
 with **SHAP**. Differences in feature importance across settings are tested for
 significance with the **Wilcoxon signed-rank test**.
 
@@ -99,7 +100,7 @@ pip install -r requirements.txt
 
 Key dependencies (see `requirements.txt` for exact versions): `polars`,
 `pandas`, `numpy`, `scikit-learn`, `scikit-survival`, `shap`, `torch`,
-`matplotlib`, `seaborn`, `scipy`, `wandb`, `PyYAML`.
+`matplotlib`, `seaborn`, `scipy`, `wandb`, `PyYAML`, `tabpfn-client`.
 
 ## Configuration
 
@@ -157,21 +158,55 @@ and sets a `tag`:
 ### 3. Split, imputation and scaling
 
 Run the split/imputation/scaling cell. It separates `CompanyID` and `Target`,
-performs the train/validation/test split, imputes missing values and scales the
-features, using the seed and split ratio from `config.yaml`.
+builds **one train/validation/test split per evaluation seed** (`seeds` in
+`config.yaml`, currently `[1, 2, 3, 4, 5]`), each with its own KNN imputer and
+`RobustScaler` fitted on that seed's training set alone. Splits are cached under
+`tmp/splits`, so the cell is slow only the first time for a given experiment.
 
 ### 4. Hyperparameter sweep and training
 
 Initialize the W&B sweep, then start the agent:
 
-- Set `number_of_runs = 5` to evaluate **all five models with the best
+- Set `number_of_runs = 35` to evaluate **all seven models with the best
   configuration** already stored in `config/config.yaml` (make sure all model
-  types are enabled in `model_type`).
+  types are enabled in `model_type`). The grid crosses the 7 models with the 5
+  evaluation seeds, so each model is replicated on five independent splits.
 - Set `number_of_runs = 70` and a single fixed `model_type` to **search** for the
   best hyperparameters.
 
+### Seeds
+
+Each sweep run draws a `seed` that drives **both** the split and the model's
+randomness, so a model's five runs are five independent replications rather than
+five reruns of one partition. Result tables report **mean ± std** across them.
+
+Hyperparameter search is deliberately *not* multi-seed. The bayes block pins
+`seed` to the single tuning seed (`random_seed`, `12`), which is kept out of the
+five evaluation seeds: tuning and reporting never share a split. Listing several
+seeds in the bayes block would let the optimiser treat the seed as a
+hyperparameter and report the luckiest split — the very noise the multi-seed
+evaluation exists to expose.
+
 Each run trains the model, logs validation/test metrics and plots to W&B, and
 computes SHAP values (stored under the current `tag` for later comparison).
+`rf`/`lgb`/`dt` use `TreeExplainer`, `lr` uses `LinearExplainer`, `mlp` uses
+`KernelExplainer`, and `svm`/`tabpfn` use `PermutationExplainer` — the only
+explainer that stays tractable on an RBF kernel and on a model served over the
+network. Its budget is set by `shap_permutation` in `config/config.yaml`.
+
+SHAP is computed on the **first evaluation seed only**: these tables ask which
+features move when the window is removed, not how much the metrics vary, and
+`compute_wilcoxon_table` pairs rows within a single explained sample, so pooling
+seeds would change what the test measures.
+
+`tabpfn` runs TabPFN v2 through the Prior Labs API, which needs an access token:
+
+```bash
+export TABPFN_TOKEN="<your Prior Labs token>"
+```
+
+Do **not** put the token in `.env` — that file is tracked by git. The notebook
+falls back to `~/.cache/tabpfn/auth_token` when the variable is unset.
 
 ### 5. Cross-experiment comparison
 
@@ -180,6 +215,8 @@ final cells produce:
 
 - **Metric comparison tables** (`compare_metrics`) reporting each metric for two
   settings and the percent change relative to `window`;
+- **Metric tables** (`compare_metrics`) reporting mean ± std across seeds, with
+  the percent change computed on the means;
 - **SHAP comparison plots** (`plot_shap_comparison`) across settings;
 - **Wilcoxon signed-rank tests** (`compute_wilcoxon_table`) on the SHAP feature
   importances, to assess whether the differences are statistically significant.

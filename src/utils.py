@@ -1,5 +1,9 @@
 import os
 import random
+from pathlib import Path
+
+import joblib
+import shap
 from matplotlib import pyplot as plt
 from matplotlib.patches import Patch
 import seaborn as sns
@@ -7,6 +11,9 @@ import numpy as np
 import pandas as pd
 import torch
 from scipy.stats import wilcoxon
+from sklearn.impute import KNNImputer
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import RobustScaler
 from statsmodels.stats.multitest import multipletests
 
 
@@ -23,6 +30,150 @@ def set_seed(seed):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+def prepare_splits(X, y, seed, test_size=0.4, n_neighbors=5):
+    """
+    Builds one stratified train/validation/test split, imputed and scaled.
+
+    The imputer and the scaler are fitted on this seed's training set alone.
+    Refitting them per seed is what keeps the multi-seed evaluation free of the
+    look-ahead leakage the paper is about: reusing one seed's imputer across
+    splits would leak held-out information into every other split.
+
+    :param X:           feature frame, without CompanyID and Target.
+    :param y:           target series.
+    :param seed:        seed driving both splits, so the partition is reproducible.
+    :param test_size:   fraction held out of training, halved into val and test.
+    :param n_neighbors: neighbours used by the KNN imputer.
+    :return:            dict with the raw frames (X_train/X_val/X_test), the
+                        targets, the imputed arrays (*_imp) and the scaled
+                        arrays (*_scaled).
+    """
+    X_train, X_temp, y_train, y_temp = train_test_split(
+        X, y, test_size=test_size, stratify=y, random_state=seed
+    )
+    X_val, X_test, y_val, y_test = train_test_split(
+        X_temp, y_temp, test_size=0.5, stratify=y_temp, random_state=seed
+    )
+
+    imputer = KNNImputer(n_neighbors=n_neighbors)
+    X_train_imp = imputer.fit_transform(X_train)
+    X_val_imp = imputer.transform(X_val)
+    X_test_imp = imputer.transform(X_test)
+
+    scaler = RobustScaler()
+    X_train_scaled = scaler.fit_transform(X_train_imp)
+    X_val_scaled = scaler.transform(X_val_imp)
+    X_test_scaled = scaler.transform(X_test_imp)
+
+    return {
+        "seed": seed,
+        "X_train": X_train, "X_val": X_val, "X_test": X_test,
+        "y_train": y_train, "y_val": y_val, "y_test": y_test,
+        "X_train_imp": X_train_imp, "X_val_imp": X_val_imp, "X_test_imp": X_test_imp,
+        "X_train_scaled": X_train_scaled, "X_val_scaled": X_val_scaled,
+        "X_test_scaled": X_test_scaled,
+    }
+
+
+def get_split(X, y, seed, test_size=0.4, n_neighbors=5, cache_dir="tmp/splits", tag=""):
+    """
+    prepare_splits with an on-disk cache keyed by (tag, seed).
+
+    The KNN imputation costs minutes on the full dataset, and a multi-seed sweep
+    revisits the same split once per model. Caching turns that into one cost per
+    (experiment, seed) instead of one per run, and it survives a kernel restart.
+    Only the requested split is held in memory, which matters because the five
+    splits together do not comfortably fit alongside a fitted SVM.
+
+    :param cache_dir: directory holding the cached splits; created if missing.
+    :param tag:       experiment tag, so window/nowindow/noteam/nocompetitors
+                      never share a cache entry.
+    :return:          same dict as prepare_splits.
+    """
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"split_{tag}_seed{seed}.joblib"
+
+    if cache_file.is_file():
+        return joblib.load(cache_file)
+
+    split = prepare_splits(X, y, seed, test_size=test_size, n_neighbors=n_neighbors)
+    joblib.dump(split, cache_file)
+    return split
+
+
+DEFAULT_TABPFN_TOKEN_FILE = Path.home() / ".cache" / "tabpfn" / "auth_token"
+
+
+def resolve_tabpfn_token(cache_file=DEFAULT_TABPFN_TOKEN_FILE):
+    """
+    Finds the Prior Labs access token used to reach TabPFN through its API.
+
+    Looks at the TABPFN_TOKEN environment variable first, then falls back to the
+    token cached by the TabPFN tooling outside the repository. The token is
+    deliberately never read from .env: that file is tracked by git.
+
+    :param cache_file: path of the cached token file used as a fallback.
+    :return:           the token, or None when neither source holds one.
+    """
+    token = os.environ.get("TABPFN_TOKEN", "").strip()
+    if token:
+        return token
+
+    cache_file = Path(cache_file)
+    if cache_file.is_file():
+        token = cache_file.read_text().strip()
+        if token:
+            return token
+
+    return None
+
+
+def compute_permutation_shap(model, background, to_explain,
+                             n_explain=100, n_background=20, random_state=None):
+    """
+    Computes SHAP values with shap.PermutationExplainer for any model exposing
+    predict_proba, using the probability of the positive class as the output.
+
+    This is the explainer used for SVM and TabPFN: neither admits TreeExplainer
+    or LinearExplainer, and KernelExplainer is intractable on them (an RBF SVM
+    carries thousands of support vectors, and TabPFN answers over the network).
+    PermutationExplainer needs only 2*n_features+1 evaluations per explained
+    row, so the cost is bounded by n_explain * (2*n_features+1) * n_background
+    model calls.
+
+    :param model:         fitted estimator exposing predict_proba.
+    :param background:    reference data the explainer masks features against.
+    :param to_explain:    rows to explain; only the first n_explain are used.
+    :param n_explain:     number of rows to explain (clamped to what is available).
+    :param n_background:  number of background rows (clamped to what is available).
+    :param random_state:  seed for the background subsample, for reproducibility.
+    :return:              numpy array of shape (n_explain, n_features).
+    """
+    background = np.asarray(background)
+    to_explain = np.asarray(to_explain)
+
+    n_background = min(n_background, len(background))
+    n_explain = min(n_explain, len(to_explain))
+
+    rng = np.random.default_rng(random_state)
+    idx = rng.choice(len(background), size=n_background, replace=False)
+    masker = background[idx]
+    sample = to_explain[:n_explain]
+
+    n_features = sample.shape[1]
+    max_evals = 2 * n_features + 1
+
+    explainer = shap.PermutationExplainer(
+        lambda x: model.predict_proba(x)[:, 1],
+        masker,
+        seed=random_state,
+    )
+    explanation = explainer(sample, max_evals=max_evals)
+
+    return np.asarray(explanation.values)
+
 
 def plot_correlation_heatmap(df, exclude_cols=['CompanyID', 'Target']):
 
@@ -393,52 +544,27 @@ def _order_metrics(keys):
     return sorted(keys, key=lambda k: (_slot(k), k.lower()))
 
 
-def _order_metrics(keys):
+def _aggregate_runs(runs, metrics):
     """
-    Reorder metric keys to the paper's column order:
-    AUC, F1 (test), Prec (test), Rec (test), Acc (test), Acc (train).
-    Matching is case-insensitive on substrings; unmatched keys are appended.
+    Collapses the per-seed records of one (model, tag) cell into mean and
+    standard deviation for each metric.
+
+    The std is the sample one (ddof=1), not numpy's default population std: the
+    seeds are a sample of the runs the procedure could have produced, and the
+    reported bar is meant to support statements about whether a gap between two
+    models exceeds split-to-split noise. A single run has no spread to estimate,
+    so it reports 0.0 rather than NaN.
+
+    :param runs:    list of dicts, one per seed, as stored by the notebook.
+    :param metrics: metric keys to aggregate.
+    :return:        dict {metric: (mean, std)}.
     """
-    def _slot(k):
-        s = k.lower().replace("_", " ").replace("-", " ")
-        is_train = "train" in s
-        if "auc" in s:
-            return 0
-        if "f1" in s or "f_1" in s or s.strip() == "f1":
-            return 1
-        if "prec" in s:
-            return 2
-        if "rec" in s:                       # recall (not 'prec')
-            return 3
-        if "acc" in s:
-            return 5 if is_train else 4
-        return 99
-
-    return sorted(keys, key=lambda k: (_slot(k), k.lower()))
-
-
-def _order_metrics(keys):
-    """
-    Reorder metric keys to the paper's column order:
-    AUC, F1 (test), Prec (test), Rec (test), Acc (test), Acc (train).
-    Matching is case-insensitive on substrings; unmatched keys are appended.
-    """
-    def _slot(k):
-        s = k.lower().replace("_", " ").replace("-", " ")
-        is_train = "train" in s
-        if "auc" in s:
-            return 0
-        if "f1" in s or "f_1" in s or s.strip() == "f1":
-            return 1
-        if "prec" in s:
-            return 2
-        if "rec" in s:                       # recall (not 'prec')
-            return 3
-        if "acc" in s:
-            return 5 if is_train else 4
-        return 99
-
-    return sorted(keys, key=lambda k: (_slot(k), k.lower()))
+    out = {}
+    for met in metrics:
+        values = np.asarray([float(r[met]) for r in runs], dtype=float)
+        std = float(values.std(ddof=1)) if len(values) > 1 else 0.0
+        out[met] = (float(values.mean()), std)
+    return out
 
 
 def compare_metrics(metrics_store, tag_a, tag_b,
@@ -448,31 +574,34 @@ def compare_metrics(metrics_store, tag_a, tag_b,
     Builds a per-model comparison table between two experiments, formatted to
     match Table 4 of the paper (tab:ablation_window).
 
-    Layout: for each model, a baseline row (tag_a) followed by a "w/o window"
-    row (tag_b) showing 'value(+x.x%)' with the relative change. Metrics are in
-    columns (AUC, F1, Prec., Rec., Acc.test, Acc.train), not in rows.
+    Every cell is reported as 'mean ± std' across the evaluation seeds, so the
+    table answers the reviewer's objection that a gap between two models could
+    be split-to-split noise. Layout: for each model, a baseline row (tag_a)
+    followed by a "w/o window" row (tag_b) that also carries the relative change
+    of the means. Metrics are in columns (AUC, F1, Prec., Rec., Acc.test,
+    Acc.train), not in rows.
 
-    :param metrics_store: dict {(model_type, tag): {metric_name: value}}
+    :param metrics_store: dict {(model_type, tag): [ {metric: value, 'seed': s}, ... ]},
+                          one entry per seed, as accumulated by the notebook.
     :param tag_a:         reference experiment tag (e.g. "window")
     :param tag_b:         experiment to compare against tag_a (e.g. "nowindow")
     :param metric_order:  optional list of metric keys to fix column order.
                           Defaults to the order found in the first model entry.
     :param model_order:   optional list of model keys to fix row order.
-                          Defaults to sorted order.
-    :param latex:         if True, the tag_b cells include LaTeX colour markup
-                          (\textcolor{green!60!black}{...} / red) matching the
-                          paper; if False, a plain '(+x.x%)' string is used.
-    :return:              pandas DataFrame indexed by row label, one column per
-                          metric. Baseline rows hold rounded values; w/o-window
-                          rows hold the formatted 'value(±x.x%)' strings.
+                          Defaults to the paper order.
+    :param latex:         if True, cells use LaTeX markup ('$0.80 \\pm 0.01$' and
+                          \\textcolor{green!60!black}{...} / red for the change);
+                          if False, a plain '0.80 ± 0.01 (+x.x%)' string is used.
+    :return:              pandas DataFrame with a 'Model' column and one column
+                          per metric.
     """
     pairs = {m for (m, t) in metrics_store.keys() if t in (tag_a, tag_b)}
 
     if model_order is not None:
         models = model_order
     else:
-        # canonical paper order: lr, dt, rf, lgb, mlp; anything else appended
-        _priority = ["lr", "dt", "rf", "lgb", "mlp"]
+        # canonical paper order: lr, dt, rf, lgb, svm, mlp, tabpfn; anything else appended
+        _priority = ["lr", "dt", "rf", "lgb", "svm", "mlp", "tabpfn"]
 
         def _rank(m):
             ml = m.lower()
@@ -483,17 +612,21 @@ def compare_metrics(metrics_store, tag_a, tag_b,
 
         models = sorted(pairs, key=_rank)
 
-    # nice column header per metric
     label_b = "w/o window"
 
-    def _fmt_pct(diff, va):
+    def _fmt_value(mean, std):
+        if latex:
+            return f"${mean:.2f} \\pm {std:.2f}$"
+        return f"{mean:.2f} ± {std:.2f}"
+
+    def _fmt_pct(mean_a, mean_b):
+        va, vb = round(mean_a, 2), round(mean_b, 2)
         if va == 0:
             return ""
-        pct = diff / va * 100.0
+        pct = (vb - va) / va * 100.0
         sign = "+" if pct >= 0 else "-"
-        body = f"({sign}{abs(pct):.1f}\\%)" if latex else f"({sign}{abs(pct):.1f}%)"
         if not latex:
-            return body
+            return f"({sign}{abs(pct):.1f}%)"
         colour = "green!60!black" if pct >= 0 else "red"
         return f"(\\textcolor{{{colour}}}{{${sign}{abs(pct):.1f}\\%$}})"
 
@@ -507,26 +640,28 @@ def compare_metrics(metrics_store, tag_a, tag_b,
             print(f"⚠️  Skipping model '{m}': missing entry for {missing}.")
             continue
 
-        a, b = metrics_store[key_a], metrics_store[key_b]
+        runs_a, runs_b = metrics_store[key_a], metrics_store[key_b]
+        if len(runs_a) != len(runs_b):
+            print(f"⚠️  Model '{m}': {len(runs_a)} seed(s) for '{tag_a}' but "
+                  f"{len(runs_b)} for '{tag_b}'; the two rows average over "
+                  f"different numbers of runs.")
+
         if metric_order is not None:
             metrics = metric_order
         else:
-            drop = {"F1_train", "F1_val", "average_precision"}
-            metrics = _order_metrics([k for k in a.keys() if k not in drop])
+            drop = {"F1_train", "F1_val", "average_precision", "seed"}
+            metrics = _order_metrics([k for k in runs_a[0].keys() if k not in drop])
         if cols is None:
             cols = metrics
 
-        # baseline row (values rounded to 2 decimals, as displayed)
-        rows[m] = {met: f"{round(float(a[met]), 2):.2f}" for met in metrics}
+        agg_a = _aggregate_runs(runs_a, metrics)
+        agg_b = _aggregate_runs(runs_b, metrics)
 
-        # w/o window row
-        row_b = {}
-        for met in metrics:
-            va = round(float(a[met]), 2)
-            vb = round(float(b[met]), 2)
-            diff = vb - va
-            row_b[met] = f"{vb:.2f}{_fmt_pct(diff, va)}"
-        rows[f"{m} {label_b}"] = row_b
+        rows[m] = {met: _fmt_value(*agg_a[met]) for met in metrics}
+        rows[f"{m} {label_b}"] = {
+            met: _fmt_value(*agg_b[met]) + _fmt_pct(agg_a[met][0], agg_b[met][0])
+            for met in metrics
+        }
 
     # preserve baseline/w-o ordering
     ordered_index = []
