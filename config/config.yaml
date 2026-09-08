@@ -29,11 +29,10 @@ frequency_encoding:
 #
 #  - svm    pays CPU time locally. 100 x 91 x 20 = 182k rows against ~12k
 #           support vectors takes about 8 minutes.
-#  - tabpfn pays Prior Labs API credits, billed roughly
-#           rows * n_features * n_estimators, against a 50M/day cap. One pass
-#           over the three splits already costs ~11M, so the SHAP budget has to
-#           leave room for the four experiments (window, nowindow, noteam,
-#           nocompetitors): 30 x 91 x 8 = 21.8k rows ~ 7.9M credits per run.
+#  - tabpfn pays one forward pass per row, on the GPU, over an ~18k-row
+#           training context. These numbers were sized for the metered API the
+#           model used to run on; running locally the ceiling is GPU time, so
+#           they can be raised towards the SVM's once a run has been timed.
 shap_permutation:
   svm:
     n_explain: 100
@@ -133,7 +132,7 @@ shap_permutation:
 #       max: 100
 #     svm_gamma:
 #       values: ["scale", "auto", 0.01, 0.1]
-#     # TabPFN-specific (v2 served through the Prior Labs API)
+#     # TabPFN-specific (v2, run locally)
 #     tabpfn_n_estimators:
 #       values: [4, 8, 16]
 #
@@ -211,6 +210,6 @@ sweep_settings:
       values: [0.7]
     svm_gamma:
       values: ["scale"]
-    # TabPFN — 8 is the client default ensemble size.
+    # TabPFN — 8 is the default ensemble size.
     tabpfn_n_estimators:
       values: [8]

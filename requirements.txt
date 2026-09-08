@@ -133,7 +133,7 @@ smmap==5.0.2
 stack-data==0.6.3
 statsmodels==0.14.6
 sympy==1.14.0
-tabpfn-client==0.3.1
+tabpfn==8.0.8
 texttable==1.7.0
 threadpoolctl==3.6.0
 torch==2.10.0

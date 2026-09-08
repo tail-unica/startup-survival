@@ -195,33 +195,6 @@ def clear_split_cache(cache_dir="tmp/splits", tag=None):
     return removed
 
 
-DEFAULT_TABPFN_TOKEN_FILE = Path.home() / ".cache" / "tabpfn" / "auth_token"
-
-
-def resolve_tabpfn_token(cache_file=DEFAULT_TABPFN_TOKEN_FILE):
-    """
-    Finds the Prior Labs access token used to reach TabPFN through its API.
-
-    Looks at the TABPFN_TOKEN environment variable first, then falls back to the
-    token cached by the TabPFN tooling outside the repository. The token is
-    deliberately never read from .env: that file is tracked by git.
-
-    :param cache_file: path of the cached token file used as a fallback.
-    :return:           the token, or None when neither source holds one.
-    """
-    token = os.environ.get("TABPFN_TOKEN", "").strip()
-    if token:
-        return token
-
-    cache_file = Path(cache_file)
-    if cache_file.is_file():
-        token = cache_file.read_text().strip()
-        if token:
-            return token
-
-    return None
-
-
 def compute_permutation_shap(model, background, to_explain,
                              n_explain=100, n_background=20, random_state=None):
     """
@@ -230,7 +203,8 @@ def compute_permutation_shap(model, background, to_explain,
 
     This is the explainer used for SVM and TabPFN: neither admits TreeExplainer
     or LinearExplainer, and KernelExplainer is intractable on them (an RBF SVM
-    carries thousands of support vectors, and TabPFN answers over the network).
+    carries thousands of support vectors, and TabPFN runs a full forward
+    pass per evaluation).
     PermutationExplainer needs only 2*n_features+1 evaluations per explained
     row, so the cost is bounded by n_explain * (2*n_features+1) * n_background
     model calls.
@@ -683,7 +657,7 @@ def _order_models(models):
 
 def compare_metrics(metrics_store, tag_a, tag_b,
                     metric_order=None, model_order=None,
-                    latex=False, decimals=3):
+                    latex=False, decimals=3, label_b="w/o window"):
     """
     Builds a per-model comparison table between two experiments, formatted to
     match Table 4 of the paper (tab:ablation_window).
@@ -706,6 +680,9 @@ def compare_metrics(metrics_store, tag_a, tag_b,
     :param latex:         if True, cells use LaTeX markup ('$0.800 \\pm 0.005$' and
                           \\textcolor{green!60!black}{...} / red for the change);
                           if False, a plain '0.800 ± 0.005 (+x.x%)' string is used.
+    :param label_b:       suffix naming the tag_b row ("rf w/o window"). The
+                          default matches Table 4; the 2x2 leakage tables pass
+                          the leak being isolated instead.
     :param decimals:      digits shown for mean and std. Defaults to 3, not the
                           2 the earlier single-run table used: the std of AUC
                           across seeds is around 0.005, which two decimals
@@ -716,8 +693,6 @@ def compare_metrics(metrics_store, tag_a, tag_b,
     """
     pairs = {m for (m, t) in metrics_store.keys() if t in (tag_a, tag_b)}
     models = model_order if model_order is not None else _order_models(pairs)
-
-    label_b = "w/o window"
 
     def _fmt_value(mean, std):
         if latex:

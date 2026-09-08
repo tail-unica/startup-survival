@@ -4,46 +4,7 @@ import pytest
 
 from src.utils import (clear_split_cache, compare_metrics, compute_permutation_shap,
                        get_split, plot_correlation_heatmap, prepare_splits,
-                       resolve_tabpfn_token, summarize_metrics)
-
-
-# --- resolve_tabpfn_token ---------------------------------------------------
-
-
-def test_env_var_wins_over_cache_file(tmp_path, monkeypatch):
-    cache = tmp_path / "auth_token"
-    cache.write_text("tabpfn_sk_from_file")
-    monkeypatch.setenv("TABPFN_TOKEN", "tabpfn_sk_from_env")
-
-    assert resolve_tabpfn_token(cache_file=cache) == "tabpfn_sk_from_env"
-
-
-def test_falls_back_to_cache_file_when_env_missing(tmp_path, monkeypatch):
-    cache = tmp_path / "auth_token"
-    cache.write_text("  tabpfn_sk_from_file\n")
-    monkeypatch.delenv("TABPFN_TOKEN", raising=False)
-
-    assert resolve_tabpfn_token(cache_file=cache) == "tabpfn_sk_from_file"
-
-
-def test_returns_none_when_no_token_anywhere(tmp_path, monkeypatch):
-    monkeypatch.delenv("TABPFN_TOKEN", raising=False)
-
-    assert resolve_tabpfn_token(cache_file=tmp_path / "missing") is None
-
-
-def test_blank_env_var_is_not_a_token(tmp_path, monkeypatch):
-    monkeypatch.setenv("TABPFN_TOKEN", "   ")
-
-    assert resolve_tabpfn_token(cache_file=tmp_path / "missing") is None
-
-
-def test_blank_cache_file_is_not_a_token(tmp_path, monkeypatch):
-    cache = tmp_path / "auth_token"
-    cache.write_text("\n")
-    monkeypatch.delenv("TABPFN_TOKEN", raising=False)
-
-    assert resolve_tabpfn_token(cache_file=cache) is None
+                       summarize_metrics)
 
 
 # --- compute_permutation_shap ----------------------------------------------
@@ -343,6 +304,18 @@ def test_measured_auc_spread_is_reported_at_three_decimals():
     df = compare_metrics(store, "window", "nowindow")
 
     assert df.set_index("Model")["AUC"]["dt"] == "0.780 ± 0.005"
+
+
+def test_row_label_names_the_isolated_leak():
+    """The 2x2 leakage tables reuse the layout with a different second row."""
+    store = {
+        ("rf", "window"): _runs([0.80]),
+        ("rf", "leakfeat"): _runs([0.90]),
+    }
+
+    df = compare_metrics(store, "window", "leakfeat", label_b="leaked features")
+
+    assert list(df["Model"]) == ["rf", "rf leaked features"]
 
 
 # --- summarize_metrics: one experiment, mean ± std across seeds --------------
