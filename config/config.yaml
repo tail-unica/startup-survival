@@ -8,17 +8,19 @@ paths:
 time_window: 7
 last_year: 2024
 test_size: 0.4
+seeds: [1, 2, 3, 4, 5, 12] #seeds for data split, include all possible splits. 12 is used only for the bayes sweep, not for the final evaluation
+shap_seed: 1 #SHAP is performed on the first seed only. The other seeds are used for the final evaluation of the models.
 
-# Seed for the hyperparameter search and for anything outside the sweep. The
-# best configurations below were found on this split, so it is deliberately kept
-# OUT of the evaluation seeds: tuning and reporting never share a split.
-random_seed: 12
+# Frequency encoding of the categorical features. Fitted on each seed's TRAINING split only 
+#
+# min_frequency is a share of the training rows, not a raw count. 
+# A category below it is pooled into `other_label`, and so are the
+# categories a held-out split shows for the first time and the missing values.
 
-# Evaluation seeds. Each sweep run draws one, and it drives both the
-# train/val/test split and every model's randomness, so the five runs of a model
-# are five independent replications. Results are reported as mean +- std across
-# them, which is what tells a real gap between two models from split noise.
-seeds: [1, 2, 3, 4, 5]
+frequency_encoding:
+  columns: ["HQCountry", "PrimaryIndustrySector"]
+  min_frequency: 0.05
+  other_label: "Others"
 
 # Budget for shap.PermutationExplainer, used by SVM and TabPFN (the models that
 # admit neither TreeExplainer nor LinearExplainer). It costs
@@ -40,8 +42,8 @@ shap_permutation:
     n_explain: 30
     n_background: 8
 
-#config.yaml
-# --- Sweep with Bayes for find best hyperparameters (commented) ---
+
+# # --- Sweep with Bayes for find best hyperparameters (commented) ---
 # sweep_settings:
 #   method: bayes
 #   metric:
@@ -49,10 +51,14 @@ shap_permutation:
 #     goal: maximize
 #   parameters:
 #     model_type: 
-#       values: ["rf","lgb","mlp","dt","lr","svm","tabpfn"]
-#     # Single fixed value on purpose: listing several seeds here would let bayes
-#     # optimise the seed and report the luckiest split, which is exactly the
-#     # noise the multi-seed evaluation is meant to expose.
+#       values: ['svm'] #"rf","lgb","mlp","dt","lr","svm","tabpfn"
+#     # The seeds this sweep runs on, and the only place they are written: the
+#     # notebook's split cell reads them from here, so switching between this
+#     # block and the grid block below switches the splits too.
+#     #
+#     # One seed, and deliberately not one of the evaluation five: several seeds
+#     # would let bayes optimise the seed and report the luckiest split, and
+#     # tuning on a split you later report on inflates it.
 #     seed:
 #       values: [12]
 #     # RF-specific
@@ -130,10 +136,10 @@ shap_permutation:
 #     # TabPFN-specific (v2 served through the Prior Labs API)
 #     tabpfn_n_estimators:
 #       values: [4, 8, 16]
-
-
-
-
+#
+#
+#
+#
 # --- Best found hyperparameters  ---
 sweep_settings:
   method: grid
@@ -143,7 +149,11 @@ sweep_settings:
   parameters:
     model_type:
       values: ["rf","lgb","mlp","dt","lr","svm","tabpfn"]
-    # Crossed with model_type by the grid: 7 models x 5 seeds = 35 runs.
+    # The seeds this sweep runs on. Crossed with model_type by the grid:
+    # 7 models x 5 seeds = 35 runs. Each run draws one, and it drives both the
+    # split and the model's randomness, so the five runs of a model are five
+    # independent replications; results are reported as mean +- std across
+    # them, which is what tells a real gap between two models from split noise.
     seed:
       values: [1, 2, 3, 4, 5]
     # RF
@@ -198,7 +208,7 @@ sweep_settings:
     # SVM — placeholder defaults, not yet tuned: re-run the bayes sweep above
     # to replace them with the best found configuration.
     svm_C:
-      values: [1.0]
+      values: [0.7]
     svm_gamma:
       values: ["scale"]
     # TabPFN — 8 is the client default ensemble size.

@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 import random
 from pathlib import Path
@@ -16,6 +18,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
 from statsmodels.stats.multitest import multipletests
 
+from src.encoding import (DEFAULT_MIN_FREQUENCY, DEFAULT_OTHER_LABEL,
+                          apply_frequency_encoding, fit_frequency_encoding)
+
 
 def set_seed(seed):
     """
@@ -31,23 +36,41 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def prepare_splits(X, y, seed, test_size=0.4, n_neighbors=5):
+def prepare_splits(X, y, seed, test_size=0.4, n_neighbors=5,
+                   categorical_columns=(), min_frequency=DEFAULT_MIN_FREQUENCY,
+                   other_label=DEFAULT_OTHER_LABEL):
     """
-    Builds one stratified train/validation/test split, imputed and scaled.
+    Builds one stratified train/validation/test split, encoded, imputed and scaled.
 
-    The imputer and the scaler are fitted on this seed's training set alone.
-    Refitting them per seed is what keeps the multi-seed evaluation free of the
-    look-ahead leakage the paper is about: reusing one seed's imputer across
-    splits would leak held-out information into every other split.
+    The three fitted objects — frequency encoding, imputer, scaler — are all
+    fitted on this seed's training set alone, in that order. Refitting them per
+    seed is what keeps the multi-seed evaluation free of the look-ahead leakage
+    the paper is about: reusing one seed's imputer across splits would leak
+    held-out information into every other split.
 
-    :param X:           feature frame, without CompanyID and Target.
-    :param y:           target series.
-    :param seed:        seed driving both splits, so the partition is reproducible.
-    :param test_size:   fraction held out of training, halved into val and test.
-    :param n_neighbors: neighbours used by the KNN imputer.
-    :return:            dict with the raw frames (X_train/X_val/X_test), the
-                        targets, the imputed arrays (*_imp) and the scaled
-                        arrays (*_scaled).
+    The frequency encoding runs first, and it runs here rather than in
+    preprocessing, where it used to be applied to the whole dataset: a category
+    share computed before the split is computed partly from the very rows it
+    will later encode. See :mod:`src.encoding`.
+
+    :param X:                   feature frame, without CompanyID and Target. May
+                                still carry raw categorical columns.
+    :param y:                   target series.
+    :param seed:                seed driving both splits, so the partition is
+                                reproducible.
+    :param test_size:           fraction held out of training, halved into val
+                                and test.
+    :param n_neighbors:         neighbours used by the KNN imputer.
+    :param categorical_columns: columns to frequency-encode. Names absent from X
+                                are ignored, so one config serves the
+                                experiments that drop some features.
+    :param min_frequency:       training share below which a category is pooled
+                                into ``other_label``.
+    :param other_label:         label of the pooled bucket.
+    :return:                    dict with the raw frames (X_train/X_val/X_test),
+                                the targets, the imputed arrays (*_imp), the
+                                scaled arrays (*_scaled) and the fitted
+                                ``encodings``.
     """
     X_train, X_temp, y_train, y_temp = train_test_split(
         X, y, test_size=test_size, stratify=y, random_state=seed
@@ -55,6 +78,18 @@ def prepare_splits(X, y, seed, test_size=0.4, n_neighbors=5):
     X_val, X_test, y_val, y_test = train_test_split(
         X_temp, y_temp, test_size=0.5, stratify=y_temp, random_state=seed
     )
+
+    X_train, X_val, X_test = X_train.copy(), X_val.copy(), X_test.copy()
+
+    encodings = {}
+    for column in [c for c in categorical_columns if c in X_train.columns]:
+        encodings[column] = fit_frequency_encoding(
+            X_train[column], min_frequency=min_frequency, other_label=other_label
+        )
+        for frame in (X_train, X_val, X_test):
+            frame[column] = apply_frequency_encoding(
+                frame[column], encodings[column], other_label=other_label
+            )
 
     imputer = KNNImputer(n_neighbors=n_neighbors)
     X_train_imp = imputer.fit_transform(X_train)
@@ -73,12 +108,40 @@ def prepare_splits(X, y, seed, test_size=0.4, n_neighbors=5):
         "X_train_imp": X_train_imp, "X_val_imp": X_val_imp, "X_test_imp": X_test_imp,
         "X_train_scaled": X_train_scaled, "X_val_scaled": X_val_scaled,
         "X_test_scaled": X_test_scaled,
+        "encodings": encodings,
     }
 
 
-def get_split(X, y, seed, test_size=0.4, n_neighbors=5, cache_dir="tmp/splits", tag=""):
+def _split_fingerprint(X, test_size, n_neighbors, categorical_columns,
+                       min_frequency, other_label):
     """
-    prepare_splits with an on-disk cache keyed by (tag, seed).
+    Short hash of everything that changes a split other than tag and seed.
+
+    Without it a cached split silently survives a change to the threshold, to
+    the encoded columns, or to the dataset itself — which is exactly how the
+    splits in tmp/splits outlived the move of the frequency encoding past the
+    split. The *contents* of X are hashed, not just its shape, so regenerating
+    the processed CSVs invalidates the cache even when the schema is unchanged.
+    Hashing 30k x 45 cells costs ~70 ms against the minutes the cache saves,
+    and it is paid once per get_split call, cache hit included.
+    """
+    payload = json.dumps({
+        "columns": list(map(str, X.columns)),
+        "data": int(pd.util.hash_pandas_object(X, index=True).sum()),
+        "test_size": test_size,
+        "n_neighbors": n_neighbors,
+        "categorical_columns": sorted(str(c) for c in categorical_columns),
+        "min_frequency": min_frequency,
+        "other_label": other_label,
+    }, sort_keys=True)
+    return hashlib.sha1(payload.encode()).hexdigest()[:8]
+
+
+def get_split(X, y, seed, test_size=0.4, n_neighbors=5, cache_dir="tmp/splits",
+              tag="", categorical_columns=(), min_frequency=DEFAULT_MIN_FREQUENCY,
+              other_label=DEFAULT_OTHER_LABEL, force=False):
+    """
+    prepare_splits with an on-disk cache keyed by (tag, seed, configuration).
 
     The KNN imputation costs minutes on the full dataset, and a multi-seed sweep
     revisits the same split once per model. Caching turns that into one cost per
@@ -89,18 +152,47 @@ def get_split(X, y, seed, test_size=0.4, n_neighbors=5, cache_dir="tmp/splits", 
     :param cache_dir: directory holding the cached splits; created if missing.
     :param tag:       experiment tag, so window/nowindow/noteam/nocompetitors
                       never share a cache entry.
+    :param force:     recompute and overwrite the cache entry even if present.
     :return:          same dict as prepare_splits.
     """
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = cache_dir / f"split_{tag}_seed{seed}.joblib"
+    fingerprint = _split_fingerprint(X, test_size, n_neighbors,
+                                     categorical_columns, min_frequency, other_label)
+    cache_file = cache_dir / f"split_{tag}_seed{seed}_{fingerprint}.joblib"
 
-    if cache_file.is_file():
+    if cache_file.is_file() and not force:
         return joblib.load(cache_file)
 
-    split = prepare_splits(X, y, seed, test_size=test_size, n_neighbors=n_neighbors)
+    split = prepare_splits(X, y, seed, test_size=test_size, n_neighbors=n_neighbors,
+                           categorical_columns=categorical_columns,
+                           min_frequency=min_frequency, other_label=other_label)
     joblib.dump(split, cache_file)
     return split
+
+
+def clear_split_cache(cache_dir="tmp/splits", tag=None):
+    """
+    Deletes cached splits so the next get_split rebuilds them.
+
+    The fingerprint in the file name already invalidates a stale entry, but it
+    leaves the old file on disk; this is the notebook's one-liner for wiping a
+    cache on purpose, and for reclaiming the space afterwards.
+
+    :param cache_dir: directory holding the cached splits.
+    :param tag:       experiment tag to clear; None clears every tag.
+    :return:          number of files removed.
+    """
+    cache_dir = Path(cache_dir)
+    if not cache_dir.is_dir():
+        return 0
+
+    pattern = "split_*.joblib" if tag is None else f"split_{tag}_seed*.joblib"
+    removed = 0
+    for path in cache_dir.glob(pattern):
+        path.unlink()
+        removed += 1
+    return removed
 
 
 DEFAULT_TABPFN_TOKEN_FILE = Path.home() / ".cache" / "tabpfn" / "auth_token"
@@ -180,12 +272,17 @@ def plot_correlation_heatmap(df, exclude_cols=['CompanyID', 'Target']):
     """
     Creates a correlation heatmap for the given DataFrame, excluding specified columns.
     
+    Only the numeric columns are correlated. The processed datasets carry
+    HQCountry and PrimaryIndustrySector as raw categories — they are
+    frequency-encoded per split, later, inside prepare_splits — and pandas'
+    .corr() raises on a string column rather than skipping it.
+
     :param df: The input DataFrame for which the correlation heatmap will be generated.
     :param exclude_cols: A list of column names to exclude from the correlation calculation. Default is ['CompanyID', 'Target'].
     """
 
 
-    corr_matrix = df.drop(exclude_cols, axis=1).corr()
+    corr_matrix = df.drop(exclude_cols, axis=1).corr(numeric_only=True)
     
     plt.figure(figsize=(30, 20))
     ax = sns.heatmap(data=corr_matrix, cmap='YlGnBu', annot=True)
@@ -567,9 +664,26 @@ def _aggregate_runs(runs, metrics):
     return out
 
 
+def _order_models(models):
+    """
+    Sorts model keys into the canonical paper order (lr, dt, rf, lgb, svm, mlp,
+    tabpfn); anything unrecognised is appended alphabetically.
+    """
+    _priority = ["lr", "dt", "rf", "lgb", "svm", "mlp", "tabpfn"]
+
+    def _rank(m):
+        ml = m.lower()
+        for i, p in enumerate(_priority):
+            if ml.startswith(p):
+                return (i, ml)
+        return (len(_priority), ml)
+
+    return sorted(models, key=_rank)
+
+
 def compare_metrics(metrics_store, tag_a, tag_b,
                     metric_order=None, model_order=None,
-                    latex=False):
+                    latex=False, decimals=3):
     """
     Builds a per-model comparison table between two experiments, formatted to
     match Table 4 of the paper (tab:ablation_window).
@@ -589,38 +703,29 @@ def compare_metrics(metrics_store, tag_a, tag_b,
                           Defaults to the order found in the first model entry.
     :param model_order:   optional list of model keys to fix row order.
                           Defaults to the paper order.
-    :param latex:         if True, cells use LaTeX markup ('$0.80 \\pm 0.01$' and
+    :param latex:         if True, cells use LaTeX markup ('$0.800 \\pm 0.005$' and
                           \\textcolor{green!60!black}{...} / red for the change);
-                          if False, a plain '0.80 ± 0.01 (+x.x%)' string is used.
+                          if False, a plain '0.800 ± 0.005 (+x.x%)' string is used.
+    :param decimals:      digits shown for mean and std. Defaults to 3, not the
+                          2 the earlier single-run table used: the std of AUC
+                          across seeds is around 0.005, which two decimals
+                          collapse to '± 0.00' — a bar that reads as zero
+                          variance rather than small variance.
     :return:              pandas DataFrame with a 'Model' column and one column
                           per metric.
     """
     pairs = {m for (m, t) in metrics_store.keys() if t in (tag_a, tag_b)}
-
-    if model_order is not None:
-        models = model_order
-    else:
-        # canonical paper order: lr, dt, rf, lgb, svm, mlp, tabpfn; anything else appended
-        _priority = ["lr", "dt", "rf", "lgb", "svm", "mlp", "tabpfn"]
-
-        def _rank(m):
-            ml = m.lower()
-            for i, p in enumerate(_priority):
-                if ml.startswith(p):
-                    return (i, ml)
-            return (len(_priority), ml)
-
-        models = sorted(pairs, key=_rank)
+    models = model_order if model_order is not None else _order_models(pairs)
 
     label_b = "w/o window"
 
     def _fmt_value(mean, std):
         if latex:
-            return f"${mean:.2f} \\pm {std:.2f}$"
-        return f"{mean:.2f} ± {std:.2f}"
+            return f"${mean:.{decimals}f} \\pm {std:.{decimals}f}$"
+        return f"{mean:.{decimals}f} ± {std:.{decimals}f}"
 
     def _fmt_pct(mean_a, mean_b):
-        va, vb = round(mean_a, 2), round(mean_b, 2)
+        va, vb = round(mean_a, decimals), round(mean_b, decimals)
         if va == 0:
             return ""
         pct = (vb - va) / va * 100.0
@@ -674,6 +779,77 @@ def compare_metrics(metrics_store, tag_a, tag_b,
     df = df.loc[ordered_index]
     # expose the model label as an explicit first column (as in Table 4),
     # not just as the index
+    df.insert(0, "Model", df.index)
+    df = df.reset_index(drop=True)
+    return df
+
+
+def summarize_metrics(metrics_store, tag,
+                      metric_order=None, model_order=None,
+                      latex=False, decimals=3):
+    """
+    Builds the result table of a single experiment: one row per model, every
+    cell the 'mean ± std' across that model's evaluation seeds.
+
+    It is the single-experiment counterpart of compare_metrics: same columns
+    (AUC, F1, Prec., Rec., Acc.test, Acc.train), same aggregation and same
+    sample std (ddof=1), but no second tag and no percent change — it answers
+    "how did the models do in the run that just finished", not "what changed
+    between two experiments".
+
+    :param metrics_store: dict {(model_type, tag): [ {metric: value, 'seed': s}, ... ]},
+                          one entry per seed, as accumulated by the notebook.
+    :param tag:           experiment to report (e.g. "window", "nowindow").
+    :param metric_order:  optional list of metric keys to fix column order.
+                          Defaults to the paper order.
+    :param model_order:   optional list of model keys to fix row order.
+                          Defaults to the paper order.
+    :param latex:         if True, cells use LaTeX markup ('$0.800 \\pm 0.005$');
+                          if False, a plain '0.800 ± 0.005' string is used.
+    :param decimals:      digits shown for mean and std. Defaults to 3, for the
+                          same reason as in compare_metrics: the std of AUC
+                          across seeds is around 0.005, which two decimals
+                          collapse to '± 0.00'.
+    :return:              pandas DataFrame with 'Model', 'Seeds' and one column
+                          per metric.
+    """
+    present = {m for (m, t) in metrics_store.keys() if t == tag}
+    if not present:
+        raise KeyError(f"metrics_store has no entry for tag '{tag}'. "
+                       f"Available tags: {sorted({t for (_, t) in metrics_store})}")
+
+    models = model_order if model_order is not None else _order_models(present)
+
+    def _fmt_value(mean, std):
+        if latex:
+            return f"${mean:.{decimals}f} \\pm {std:.{decimals}f}$"
+        return f"{mean:.{decimals}f} ± {std:.{decimals}f}"
+
+    rows = {}
+    cols = None
+
+    for m in models:
+        runs = metrics_store.get((m, tag))
+        if not runs:
+            print(f"⚠️  Skipping model '{m}': no run for '{tag}'.")
+            continue
+
+        if metric_order is not None:
+            metrics = metric_order
+        else:
+            drop = {"F1_train", "F1_val", "average_precision", "seed"}
+            metrics = _order_metrics([k for k in runs[0].keys() if k not in drop])
+        if cols is None:
+            cols = metrics
+
+        agg = _aggregate_runs(runs, metrics)
+        # The seed count is part of the result: a '± 0.000' cell means one run,
+        # not a model that is insensitive to the split.
+        rows[m] = {"Seeds": len(runs),
+                   **{met: _fmt_value(*agg[met]) for met in metrics}}
+
+    df = pd.DataFrame.from_dict(rows, orient="index", columns=["Seeds"] + list(cols))
+    df = df.loc[[m for m in models if m in rows]]
     df.insert(0, "Model", df.index)
     df = df.reset_index(drop=True)
     return df

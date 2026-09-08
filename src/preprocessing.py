@@ -162,25 +162,6 @@ def getFlagTop50Institute(InstituteList,top_50_universities):
             return True
     return False
 
-def collapse_categories(df, column_name, min_count, other_label="Other"):
-
-    '''
-    This function takes a dataframe, a column name, a minimum count and an other label,
-    and returns a new dataframe where the categories in the specified column that have a count less than the minimum count are replaced with the other label.
-    
-    :param df: Input dataframe
-    :param column_name: Name of the column to collapse categories
-    :param min_count: Minimum count for a category to be kept as is, otherwise it will be replaced with the other label
-    :param other_label: Label to replace the categories that have a count less than the minimum count (default is "Other")
-    '''
-
-    return df.with_columns(
-        pl.when(pl.col(column_name).count().over(column_name) >= min_count)
-        .then(pl.col(column_name))
-        .otherwise(pl.lit(other_label))
-        .alias(column_name)
-    )
-
 def getCompleteDatasetWithTimeWindow(initialPanel,TimeWindow=7,lastYear=2024):
 
     '''
@@ -338,38 +319,6 @@ def createHasTop50InstituteFlag(dataset, university_ranking_path):
 
     return datasetWithUniversityFlag
 
-def handleCategoricalVariables(dataset):
-
-    '''
-    This function takes the dataset and handles the categorical variables by collapsing categories with low frequency into "Other" 
-    and applying frequency encoding.
-    
-    :param dataset: Input dataset
-    '''
-
-    # collapse categories in HQCountry with less than 1000 occurrences into "Other"
-    datasetWithNoCategories = collapse_categories(dataset, "HQCountry", min_count=1000)
-
-
-    #frequency encoding HQCountry
-    freq_df = datasetWithNoCategories.group_by("HQCountry").agg(
-        pl.len().alias("HQCountryFreq")
-    )
-    datasetWithNoCategories = datasetWithNoCategories.join(freq_df, on="HQCountry").drop("HQCountry")
-
-
-    #frequency encoding PrimaryIndustrySector
-    freq_df = datasetWithNoCategories.group_by("PrimaryIndustrySector").agg(
-        pl.len().alias("PrimaryIndustrySectorFreq")
-    )
-    datasetWithNoCategories = datasetWithNoCategories.join(freq_df, on="PrimaryIndustrySector").drop("PrimaryIndustrySector")
-
-
-    # indicator feature for the CEO's gender
-    datasetWithNoCategories = datasetWithNoCategories.to_dummies("Gender_CEO").drop("Gender_CEO_Male").drop("Gender_CEO_null")
-
-    return datasetWithNoCategories
-
 def handleMissingValues(dataset, flag_no_time_window):
 
     '''
@@ -489,14 +438,14 @@ def preprocessDataset(dataset, university_ranking_path, flag_no_time_window=Fals
     # Create the "HasTop50Institute" flag based on the "Institute" column and the top 50 universities list
     filteredDatasetWithUniversityFlag = createHasTop50InstituteFlag(filteredDataset, university_ranking_path)
 
-    # Handle categorical variables by collapsing low frequency categories and applying frequency encoding
-    datasetWithNoCategories = handleCategoricalVariables(filteredDatasetWithUniversityFlag)
+    # Handle Gender_CEO categorical variable in binary format
+    filteredDatasetWithUniversityFlag=filteredDatasetWithUniversityFlag.to_dummies("Gender_CEO").drop("Gender_CEO_Male").drop("Gender_CEO_null")
 
     # Handle missing values 
     # Keep attention: in these experiments i'm assuming that the missing values are in the same columns for both the dataset with time window and the dataset without time window,
     #  and that the distribution of missing values is similar in the two datasets, so I apply the same missing values handling strategy to both datasets. 
     #If you want to replicate the experiments with a different starting dataset, you should check if these assumptions hold and eventually adapt the missing values handling strategy to the specific characteristics of the new dataset.
-    datasetWithNoMissingValues = handleMissingValues(datasetWithNoCategories, flag_no_time_window)
+    datasetWithNoMissingValues = handleMissingValues(filteredDatasetWithUniversityFlag, flag_no_time_window)
     
 
     # Create the final dataset by encoding the target variable as binary (1 for "Later" and "Exit"  (Success), 0 for "Steady")
