@@ -16,8 +16,8 @@
 - **polars only.** No pandas, no SQL, no SQLite. `src/preprocessing.py` already uses polars.
 - **Memory ceiling: 7 GB RAM against 5.6 GB of source CSVs.** Read with `pl.scan_csv` in lazy mode, project only the needed columns, and `.collect(engine="streaming")`. Never materialise `Person.csv` (956 MB), `CompanySimilarRelation.csv` (836 MB), `Deal.csv` (293 MB) or `PersonPositionRelation.csv` (289 MB) in full.
 - **Explicit schemas.** Always pass `infer_schema_length=0` (everything String) and cast deliberately. `CompanyID` is a string (`"100020-70"`); inferring it as anything else silently breaks joins.
-- **R source of truth:** `config/RCode/1_Arrange_DB.R` (1257 lines) and `config/RCode/2_Arrange_Final.R` (269 lines). Line references in this plan point at those files.
-- **Reference data:** `config/RCode/DB pulito/*.csv` (raw), `config/RCode/DatiIntermedi/*.csv` (R outputs, ground truth). Both gitignored.
+- **R source of truth:** `src/RCode/1_Arrange_DB.R` (1257 lines) and `src/RCode/2_Arrange_Final.R` (269 lines). Line references in this plan point at those files.
+- **Reference data:** `data/raw/pitchbook/*.csv` (raw), `data/reference/*.csv` (R outputs, ground truth). Both gitignored.
 - **Run everything with `.venv/bin/python`**, from the repository root.
 - `db_master.csv` is **not** a reference file — it comes from an older pipeline version. Ignore it.
 
@@ -62,8 +62,8 @@ def test_bug_flag_registry_matches_dataclass_fields():
 
 def test_paths_are_relative_to_repo_root():
     cfg = PanelConfig()
-    assert cfg.raw_dir == Path("config/RCode/DB pulito")
-    assert cfg.ref_dir == Path("config/RCode/DatiIntermedi")
+    assert cfg.raw_dir == Path("data/raw/pitchbook")
+    assert cfg.ref_dir == Path("data/reference")
     assert cfg.interim_dir == Path("data/interim")
 
 
@@ -126,8 +126,8 @@ IMPUTATION_STRATEGIES: tuple[str, ...] = ("r_legacy", "r_injected", "leakage_fre
 class PanelConfig:
     """Paths, bug flags and imputation strategy for one pipeline run."""
 
-    raw_dir: Path = Path("config/RCode/DB pulito")
-    ref_dir: Path = Path("config/RCode/DatiIntermedi")
+    raw_dir: Path = Path("data/raw/pitchbook")
+    ref_dir: Path = Path("data/reference")
     interim_dir: Path = Path("data/interim")
 
     seed: int = 12
@@ -793,7 +793,7 @@ First record the true row counts:
 .venv/bin/python - <<'EOF'
 import polars as pl
 from pathlib import Path
-base = Path("config/RCode/DB pulito")
+base = Path("data/raw/pitchbook")
 tables = ["Company", "CompanyAffiliateRelation", "CompanyBoardTeamRelation",
           "CompanyEmployeeHistoryRelation", "CompanyFinancialRelation",
           "CompanyNewsRelation", "CompanySimilarRelation", "Deal",
@@ -1972,8 +1972,8 @@ from pathlib import Path
 
 import polars as pl
 
-RAW = Path("config/RCode/DB pulito/CompanySimilarRelation.csv")
-REF = Path("config/RCode/DatiIntermedi/db_master_1.csv")
+RAW = Path("data/raw/pitchbook/CompanySimilarRelation.csv")
+REF = Path("data/reference/db_master_1.csv")
 OUT = Path("src/panel/data/europe.csv")
 
 

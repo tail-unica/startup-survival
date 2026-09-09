@@ -76,48 +76,100 @@ demonstrate and re-run the upstream feature-engineering pipeline.
 ```
 .
 ├── config/
-│   └── config.yaml              # Paths, time window, split, seeds, frequency encoding, sweep
+│   └── config.yaml               # Paths, time window, split, seeds, frequency encoding, sweep
 ├── data/
 │   ├── raw/
-│   │   └── example_panel.csv     # Synthetic example panel (released)
+│   │   ├── example_panel.csv     # Synthetic example panel (released)
+│   │   ├── QS_World_Rankings.csv # University ranking, to flag top-tier institutes
+│   │   └── pitchbook/            # PitchBook extraction (not released)
+│   ├── reference/                # R intermediates, ground truth for the port (not released)
+│   ├── interim/                  # Per-stage outputs of the panel pipeline
 │   └── processed/
 │       ├── dataset_window.csv    # Final bias-controlled dataset (released)
 │       └── dataset_nowindow.csv  # Final look-ahead-biased dataset (released)
+├── docs/                         # Design specs and implementation plans
 ├── scripts/
-│   └── build_datasets.py         # Rebuilds the two processed datasets from the panel
+│   ├── build_datasets.py         # Rebuilds the two processed datasets from the panel
+│   └── check_extraction.py       # Checks a candidate extraction against the reference
 ├── src/
 │   ├── preprocessing.py          # Feature & target engineering, time window, imputation
 │   ├── encoding.py               # Frequency encoding, fitted per split (no leakage)
 │   ├── utils.py                  # Splits, plotting, SHAP comparison, Wilcoxon test, metrics
-│   └── models/
-│       └── MLP.py                # Multi-Layer Perceptron model
+│   ├── training.py               # One sweep run: build, fit, log, explain
+│   ├── models/                   # One class per model family
+│   │   ├── base.py               # The interface: matrices, fit, score, explain
+│   │   ├── sklearn_models.py     # RF, LightGBM, Decision Tree, LR, SVM
+│   │   ├── mlp.py                # The network and its training loop
+│   │   └── tabpfn.py             # TabPFN v2, run locally
+│   ├── panel/                    # Panel construction pipeline, ported from R
+│   └── RCode/                    # Original R scripts, kept for reference (not released)
 ├── tests/                        # pytest suite for src/
 ├── notebook.ipynb                # Main reproducible pipeline (end to end)
-├── requirements.txt
-├── .env                         # Template for the environment variables
+├── pyproject.toml                # Dependencies, ruff configuration
+├── uv.lock                       # Exact resolution, committed
+├── .env                          # Template for the environment variables
 └── README.md
 ```
 
+The panel construction step is being ported from R to Python under `src/panel/`.
+Until it lands, `src/RCode/` holds the original scripts it is translated from
+and `data/reference/` the intermediates their output is checked against; neither
+is redistributable, so both are absent from a fresh clone.
+
 ## Installation
 
-The code was developed and tested with **Python 3.12**.
+The code was developed and tested with **Python 3.12**. Dependencies are managed
+with [uv](https://docs.astral.sh/uv/); install it first if you do not have it
+(`curl -LsSf https://astral.sh/uv/install.sh | sh`).
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/tail-unica/startup-survival
 cd startup-survival
-
-# 2. Create and activate a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
-# 3. Install the dependencies
-pip install -r requirements.txt
+uv sync
 ```
 
-Key dependencies (see `requirements.txt` for exact versions): `polars`,
-`pandas`, `numpy`, `scikit-learn`, `scikit-survival`, `shap`, `torch`,
-`matplotlib`, `seaborn`, `scipy`, `wandb`, `PyYAML`, `tabpfn`.
+`uv sync` creates `.venv`, installs the exact versions recorded in `uv.lock`,
+and installs the project itself, so `import src...` works from any directory.
+There is no separate virtual-environment step and nothing to activate: prefix
+commands with `uv run`, or activate `.venv` by hand if you prefer.
+
+Key dependencies (`uv.lock` holds the exact resolution): `polars`, `pandas`,
+`numpy`, `scikit-learn`, `lightgbm`, `torch`, `tabpfn`, `shap`, `matplotlib`,
+`seaborn`, `scipy`, `statsmodels`, `wandb`, `PyYAML`, `python-dotenv`,
+`joblib`.
+
+## Development
+
+```bash
+uv run pytest            # test suite
+uv run ruff check .      # lint
+uv run ruff format .     # format
+uv run jupyter lab       # open notebook.ipynb
+```
+
+`tests/` covers the feature and target engineering (`src/preprocessing.py`), the
+per-split frequency encoding (`src/encoding.py`), the split/imputation/scaling
+cache and the SHAP comparison and Wilcoxon machinery (`src/utils.py`), the seven
+model families (`src/models/`), and the panel pipeline configuration
+(`src/panel/`). The model tests run without W&B, without the datasets and
+without a GPU.
+
+### Adding a model family
+
+Write a class in `src/models/` answering the four questions the training loop
+asks — which matrix it is fitted on (`wants_scaled`), how it is built from the
+sweep config (`from_sweep`), how it turns probabilities into labels (`score`),
+and which SHAP explainer stays tractable on it (`explain`) — then register it in
+`src/models/__init__.py` and add its hyperparameters to `sweep_settings` in
+`config/config.yaml` under a `<family>_` prefix. `src/training.py` does not
+change.
+
+`tests/test_preprocessing.py` is currently skipped at module level: it targets a
+function that was removed when category collapsing moved per split, and it is
+re-pointed together with the panel pipeline port. The skip message says so, and
+the suite reports it on every run.
+
+Lint and format rules live in `pyproject.toml` (`ruff`, line length 100).
 
 ## Configuration
 
@@ -142,25 +194,28 @@ are defined in `config/config.yaml`.
 
 ## Step-by-step usage
 
-The entire workflow is driven by **`notebook.ipynb`**. 
+The workflow is driven by **`notebook.ipynb`**, which orchestrates the code in
+`src/`: run its sections in order.
 
-Then proceed through the sections in order.
+```bash
+uv run jupyter lab notebook.ipynb
+```
 
 ### 1. Dataset creation (optional, from the panel)
 
-The first part of the notebook rebuilds the two final datasets from the input
-panel via the functions in `src/preprocessing.py`
-(`getCompleteDatasetWithTimeWindow`, `getCompleteDatasetWithoutTimeWindow`,
-`preprocessDataset`). The same pipeline is available as a script:
+The first cells of the notebook rebuild the two final datasets from the input
+panel via the functions in `src/preprocessing.py` (`build_windowed_dataset`,
+`build_full_history_dataset`, `preprocess_dataset`). They ship commented out,
+because without the original panel there is nothing to rebuild. The same
+pipeline runs as a script:
 
 ```bash
-python scripts/build_datasets.py
+uv run python scripts/build_datasets.py
 ```
 
 The processed datasets carry `HQCountry` and `PrimaryIndustrySector` as **raw
-categories**. They used to be collapsed and frequency-encoded here, on the whole
-dataset; that step now runs per split (see below), which is why the categories
-themselves have to survive preprocessing.
+categories**: they are collapsed and frequency-encoded per split (see below), so
+the categories themselves have to survive preprocessing.
 
 - With the original panel this regenerates `dataset_window.csv` and
   `dataset_nowindow.csv`.
@@ -179,7 +234,12 @@ and sets a `tag`:
 - `window` — bias-controlled (loads `dataset_window.csv`);
 - `nowindow` — look-ahead bias (loads `dataset_nowindow.csv`);
 - `noteam` — `dataset_window.csv` with team features dropped;
-- `nocompetitors` — `dataset_window.csv` with competition features dropped.
+- `nocompetitors` — `dataset_window.csv` with competition features dropped;
+- `leaklabel` — bias-free features with the leaked target merged in on `CompanyID`;
+- `leakfeat` — leaked features with the bias-free target.
+
+Which columns count as team features and which as competition features is set by
+`ablations` in `config/config.yaml`.
 
 ### 3. Split, imputation and scaling
 

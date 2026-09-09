@@ -35,7 +35,7 @@ colonna negli stadi che non hanno un file di riferimento dedicato
 
 ## 2. Contesto: cosa fa la pipeline R
 
-Due script in `config/RCode/`.
+Due script in `src/RCode/`.
 
 **`1_Arrange_DB.R`** (1257 righe) carica 51 CSV in un database SQLite
 temporaneo e vi accede per indice posizionale (`tbl[N]`), poi costruisce:
@@ -104,7 +104,7 @@ degli stadi precedenti e scrive i propri in `data/interim/`. Rieseguire
 uno stadio non impone di rifare i precedenti — vincolo pratico
 importante, dato il volume dei dati.
 
-`data/interim/` e `config/RCode/` vanno aggiunti a `.gitignore`.
+`data/interim/` e `src/RCode/` vanno aggiunti a `.gitignore`.
 
 ### Dataflow
 
@@ -423,7 +423,7 @@ forzatura esplicita.
 
 ### 8.1 I file di riferimento
 
-I CSV in `config/RCode/DatiIntermedi/` sono la ground truth.
+I CSV in `data/reference/` sono la ground truth.
 
 | checkpoint | fine stadio | file di riferimento | righe attese | chiave |
 |---|---|---|---|---|

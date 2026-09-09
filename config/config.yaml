@@ -41,6 +41,34 @@ shap_permutation:
     n_explain: 30
     n_background: 8
 
+# The two ablation settings, as the columns they remove from dataset_window.
+# What counts as a team feature and what counts as a competition feature is a
+# claim the paper makes, so it is written here rather than inside a notebook
+# cell.
+ablations:
+  noteam:
+    - Total_People
+    - WorkExp_Idx_Mean
+    - Highest_Degree_Mean
+    - Total_Founders
+    - Percent_Females
+    - Avg_Earliest_Year
+    - HasTop50Institute
+    - Is_Eco
+    - Is_Eng
+    - Is_NS
+    - Is_Hum
+    - Is_SS
+    - Is_Med
+    - Is_Law
+    - Is_IT
+    - WorkExperienceIndex_CEO
+    - Gender_CEO_Female
+  nocompetitors:
+    - SimilarityScoreMean
+    - N_Competitors
+    - Same_Country
+
 
 # # --- Sweep with Bayes for find best hyperparameters (commented) ---
 # sweep_settings:

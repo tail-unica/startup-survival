@@ -17,8 +17,8 @@ def test_bug_flag_registry_matches_dataclass_fields():
 
 def test_paths_are_relative_to_repo_root():
     cfg = PanelConfig()
-    assert cfg.raw_dir == Path("config/RCode/DB pulito")
-    assert cfg.ref_dir == Path("config/RCode/DatiIntermedi")
+    assert cfg.raw_dir == Path("data/raw/pitchbook")
+    assert cfg.ref_dir == Path("data/reference")
     assert cfg.interim_dir == Path("data/interim")
 
 

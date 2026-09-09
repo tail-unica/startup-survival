@@ -21,9 +21,11 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.preprocessing import (getCompleteDatasetWithoutTimeWindow,  # noqa: E402
-                               getCompleteDatasetWithTimeWindow,
-                               preprocessDataset)
+from src.preprocessing import (  # noqa: E402
+    build_full_history_dataset,
+    build_windowed_dataset,
+    preprocess_dataset,
+)
 
 
 def main():
@@ -36,9 +38,8 @@ def main():
     ranking = str(root / paths["raw_university_ranking"])
 
     print("building the time-window dataset ...")
-    window = preprocessDataset(
-        getCompleteDatasetWithTimeWindow(panel, int(config["time_window"]),
-                                         int(config["last_year"])),
+    window = preprocess_dataset(
+        build_windowed_dataset(panel, int(config["time_window"]), int(config["last_year"])),
         ranking,
     )
     out_window = root / paths["dataset_window"]
@@ -46,8 +47,8 @@ def main():
     print(f"  {out_window}: {window.shape[0]} rows x {window.shape[1]} columns")
 
     print("building the no-window dataset ...")
-    nowindow = preprocessDataset(
-        getCompleteDatasetWithoutTimeWindow(panel, window),
+    nowindow = preprocess_dataset(
+        build_full_history_dataset(panel, window),
         ranking,
         flag_no_time_window=True,
     )

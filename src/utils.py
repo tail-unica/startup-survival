@@ -5,21 +5,24 @@ import random
 from pathlib import Path
 
 import joblib
-import shap
-from matplotlib import pyplot as plt
-from matplotlib.patches import Patch
-import seaborn as sns
 import numpy as np
 import pandas as pd
+import seaborn as sns
+import shap
 import torch
+from matplotlib import pyplot as plt
+from matplotlib.patches import Patch
 from scipy.stats import wilcoxon
 from sklearn.impute import KNNImputer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
-from statsmodels.stats.multitest import multipletests
 
-from src.encoding import (DEFAULT_MIN_FREQUENCY, DEFAULT_OTHER_LABEL,
-                          apply_frequency_encoding, fit_frequency_encoding)
+from src.encoding import (
+    DEFAULT_MIN_FREQUENCY,
+    DEFAULT_OTHER_LABEL,
+    apply_frequency_encoding,
+    fit_frequency_encoding,
+)
 
 
 def set_seed(seed):
@@ -36,9 +39,17 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def prepare_splits(X, y, seed, test_size=0.4, n_neighbors=5,
-                   categorical_columns=(), min_frequency=DEFAULT_MIN_FREQUENCY,
-                   other_label=DEFAULT_OTHER_LABEL):
+
+def prepare_splits(
+    X,
+    y,
+    seed,
+    test_size=0.4,
+    n_neighbors=5,
+    categorical_columns=(),
+    min_frequency=DEFAULT_MIN_FREQUENCY,
+    other_label=DEFAULT_OTHER_LABEL,
+):
     """
     Builds one stratified train/validation/test split, encoded, imputed and scaled.
 
@@ -49,9 +60,9 @@ def prepare_splits(X, y, seed, test_size=0.4, n_neighbors=5,
     held-out information into every other split.
 
     The frequency encoding runs first, and it runs here rather than in
-    preprocessing, where it used to be applied to the whole dataset: a category
-    share computed before the split is computed partly from the very rows it
-    will later encode. See :mod:`src.encoding`.
+    preprocessing, because a category share computed before the split is
+    computed partly from the very rows it will later encode. See
+    :mod:`src.encoding`.
 
     :param X:                   feature frame, without CompanyID and Target. May
                                 still carry raw categorical columns.
@@ -103,17 +114,23 @@ def prepare_splits(X, y, seed, test_size=0.4, n_neighbors=5,
 
     return {
         "seed": seed,
-        "X_train": X_train, "X_val": X_val, "X_test": X_test,
-        "y_train": y_train, "y_val": y_val, "y_test": y_test,
-        "X_train_imp": X_train_imp, "X_val_imp": X_val_imp, "X_test_imp": X_test_imp,
-        "X_train_scaled": X_train_scaled, "X_val_scaled": X_val_scaled,
+        "X_train": X_train,
+        "X_val": X_val,
+        "X_test": X_test,
+        "y_train": y_train,
+        "y_val": y_val,
+        "y_test": y_test,
+        "X_train_imp": X_train_imp,
+        "X_val_imp": X_val_imp,
+        "X_test_imp": X_test_imp,
+        "X_train_scaled": X_train_scaled,
+        "X_val_scaled": X_val_scaled,
         "X_test_scaled": X_test_scaled,
         "encodings": encodings,
     }
 
 
-def _split_fingerprint(X, test_size, n_neighbors, categorical_columns,
-                       min_frequency, other_label):
+def _split_fingerprint(X, test_size, n_neighbors, categorical_columns, min_frequency, other_label):
     """
     Short hash of everything that changes a split other than tag and seed.
 
@@ -125,21 +142,34 @@ def _split_fingerprint(X, test_size, n_neighbors, categorical_columns,
     Hashing 30k x 45 cells costs ~70 ms against the minutes the cache saves,
     and it is paid once per get_split call, cache hit included.
     """
-    payload = json.dumps({
-        "columns": list(map(str, X.columns)),
-        "data": int(pd.util.hash_pandas_object(X, index=True).sum()),
-        "test_size": test_size,
-        "n_neighbors": n_neighbors,
-        "categorical_columns": sorted(str(c) for c in categorical_columns),
-        "min_frequency": min_frequency,
-        "other_label": other_label,
-    }, sort_keys=True)
+    payload = json.dumps(
+        {
+            "columns": list(map(str, X.columns)),
+            "data": int(pd.util.hash_pandas_object(X, index=True).sum()),
+            "test_size": test_size,
+            "n_neighbors": n_neighbors,
+            "categorical_columns": sorted(str(c) for c in categorical_columns),
+            "min_frequency": min_frequency,
+            "other_label": other_label,
+        },
+        sort_keys=True,
+    )
     return hashlib.sha1(payload.encode()).hexdigest()[:8]
 
 
-def get_split(X, y, seed, test_size=0.4, n_neighbors=5, cache_dir="tmp/splits",
-              tag="", categorical_columns=(), min_frequency=DEFAULT_MIN_FREQUENCY,
-              other_label=DEFAULT_OTHER_LABEL, force=False):
+def get_split(
+    X,
+    y,
+    seed,
+    test_size=0.4,
+    n_neighbors=5,
+    cache_dir="tmp/splits",
+    tag="",
+    categorical_columns=(),
+    min_frequency=DEFAULT_MIN_FREQUENCY,
+    other_label=DEFAULT_OTHER_LABEL,
+    force=False,
+):
     """
     prepare_splits with an on-disk cache keyed by (tag, seed, configuration).
 
@@ -157,16 +187,24 @@ def get_split(X, y, seed, test_size=0.4, n_neighbors=5, cache_dir="tmp/splits",
     """
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    fingerprint = _split_fingerprint(X, test_size, n_neighbors,
-                                     categorical_columns, min_frequency, other_label)
+    fingerprint = _split_fingerprint(
+        X, test_size, n_neighbors, categorical_columns, min_frequency, other_label
+    )
     cache_file = cache_dir / f"split_{tag}_seed{seed}_{fingerprint}.joblib"
 
     if cache_file.is_file() and not force:
         return joblib.load(cache_file)
 
-    split = prepare_splits(X, y, seed, test_size=test_size, n_neighbors=n_neighbors,
-                           categorical_columns=categorical_columns,
-                           min_frequency=min_frequency, other_label=other_label)
+    split = prepare_splits(
+        X,
+        y,
+        seed,
+        test_size=test_size,
+        n_neighbors=n_neighbors,
+        categorical_columns=categorical_columns,
+        min_frequency=min_frequency,
+        other_label=other_label,
+    )
     joblib.dump(split, cache_file)
     return split
 
@@ -195,8 +233,9 @@ def clear_split_cache(cache_dir="tmp/splits", tag=None):
     return removed
 
 
-def compute_permutation_shap(model, background, to_explain,
-                             n_explain=100, n_background=20, random_state=None):
+def compute_permutation_shap(
+    model, background, to_explain, n_explain=100, n_background=20, random_state=None
+):
     """
     Computes SHAP values with shap.PermutationExplainer for any model exposing
     predict_proba, using the probability of the positive class as the output.
@@ -241,29 +280,31 @@ def compute_permutation_shap(model, background, to_explain,
     return np.asarray(explanation.values)
 
 
-def plot_correlation_heatmap(df, exclude_cols=['CompanyID', 'Target']):
-
+def plot_correlation_heatmap(df, exclude_cols=None):
     """
     Creates a correlation heatmap for the given DataFrame, excluding specified columns.
-    
+
     Only the numeric columns are correlated. The processed datasets carry
     HQCountry and PrimaryIndustrySector as raw categories — they are
     frequency-encoded per split, later, inside prepare_splits — and pandas'
     .corr() raises on a string column rather than skipping it.
 
     :param df: The input DataFrame for which the correlation heatmap will be generated.
-    :param exclude_cols: A list of column names to exclude from the correlation calculation. Default is ['CompanyID', 'Target'].
+    :param exclude_cols: Column names to exclude from the correlation calculation.
+        Defaults to ['CompanyID', 'Target'].
     """
 
+    if exclude_cols is None:
+        exclude_cols = ["CompanyID", "Target"]
 
     corr_matrix = df.drop(exclude_cols, axis=1).corr(numeric_only=True)
-    
+
     plt.figure(figsize=(30, 20))
-    ax = sns.heatmap(data=corr_matrix, cmap='YlGnBu', annot=True)
+    ax = sns.heatmap(data=corr_matrix, cmap="YlGnBu", annot=True)
     bottom, top = ax.get_ylim()
     ax.set_ylim(bottom + 0.5, top - 0.5)
     plt.show()
-    
+
     return corr_matrix
 
 
@@ -276,16 +317,17 @@ def to_tensors(X, y):
     :return: A tuple containing the input features and target labels as PyTorch tensors.
     """
 
-    y_np = y.values if hasattr(y, 'values') else y
+    y_np = y.values if hasattr(y, "values") else y
     return (
         torch.tensor(X, dtype=torch.float32),
-        torch.tensor(y_np, dtype=torch.float32).unsqueeze(1)
+        torch.tensor(y_np, dtype=torch.float32).unsqueeze(1),
     )
 
 
 def _prepare_shap_comparison(shap_store, top_k=20):
     """
-    Helper: extracts and prepares SHAP values and feature info for the bias-controlled vs no-window comparison plot.
+    Helper: extracts and prepares SHAP values and feature info for the
+    bias-controlled vs no-window comparison plot.
 
     Returns a dictionary with:
         sv_b, sv_n             : SHAP arrays (n_samples, n_features)
@@ -296,6 +338,7 @@ def _prepare_shap_comparison(shap_store, top_k=20):
         idx_base, idx_now      : dict {feature: column_index}
         mean_abs_b, mean_abs_n : mean absolute importance per feature
     """
+
     def squeeze_shap(sv):
         sv = np.asarray(sv)
         if sv.ndim == 3:
@@ -308,14 +351,17 @@ def _prepare_shap_comparison(shap_store, top_k=20):
     sample_b = shap_store[("lgb", "window")]["explainer_sample"]
     sample_n = shap_store[("lgb", "nowindow")]["explainer_sample"]
 
-    features_baseline = (list(pd.DataFrame(sample_b).columns)
-                         if hasattr(sample_b, "columns") or isinstance(sample_b, (pd.DataFrame, np.ndarray))
-                         else [f"f{i}" for i in range(sv_b.shape[1])])
-    features_nowindow = (list(pd.DataFrame(sample_n).columns)
-                         if hasattr(sample_n, "columns") or isinstance(sample_n, (pd.DataFrame, np.ndarray))
-                         else [f"f{i}" for i in range(sv_n.shape[1])])
+    features_baseline = (
+        list(pd.DataFrame(sample_b).columns)
+        if hasattr(sample_b, "columns") or isinstance(sample_b, (pd.DataFrame, np.ndarray))
+        else [f"f{i}" for i in range(sv_b.shape[1])]
+    )
+    features_nowindow = (
+        list(pd.DataFrame(sample_n).columns)
+        if hasattr(sample_n, "columns") or isinstance(sample_n, (pd.DataFrame, np.ndarray))
+        else [f"f{i}" for i in range(sv_n.shape[1])]
+    )
 
-    
     if isinstance(sample_b, pd.DataFrame):
         features_baseline = list(sample_b.columns)
     if isinstance(sample_n, pd.DataFrame):
@@ -324,18 +370,19 @@ def _prepare_shap_comparison(shap_store, top_k=20):
     mean_abs_b = np.abs(sv_b).mean(axis=0)
     mean_abs_n = np.abs(sv_n).mean(axis=0)
 
-    order_n   = np.argsort(-mean_abs_n)
+    order_n = np.argsort(-mean_abs_n)
     ranking_n = [features_nowindow[i] for i in order_n][:top_k]
 
-    order_b        = np.argsort(-mean_abs_b)
+    order_b = np.argsort(-mean_abs_b)
     ranking_b_full = [features_baseline[i] for i in order_b]
-    rank_base      = {f: i + 1 for i, f in enumerate(ranking_b_full)}
+    rank_base = {f: i + 1 for i, f in enumerate(ranking_b_full)}
 
     idx_base = {f: i for i, f in enumerate(features_baseline)}
-    idx_now  = {f: i for i, f in enumerate(features_nowindow)}
+    idx_now = {f: i for i, f in enumerate(features_nowindow)}
 
     return dict(
-        sv_b=sv_b, sv_n=sv_n,
+        sv_b=sv_b,
+        sv_n=sv_n,
         features_baseline=features_baseline,
         features_nowindow=features_nowindow,
         ranking_n=ranking_n,
@@ -349,9 +396,12 @@ def _prepare_shap_comparison(shap_store, top_k=20):
 
 def plot_shap_comparison(shap_store, top_k=20):
     """
-    Generate a comparison plot of SHAP value distributions for the bias-controlled model vs the no-window model (with leakage).
+    Generate a comparison plot of SHAP value distributions for the
+    bias-controlled model vs the no-window model (with leakage).
 
-    Needs shap_store to contain the keys ("lgb", "window") and ("lgb", "nowindow") with the corresponding SHAP values and explainer samples.
+    Needs shap_store to contain the keys ("lgb", "window") and
+    ("lgb", "nowindow") with the corresponding SHAP values and explainer
+    samples.
 
     :param shap_store: dictionary populated by the train() function in the notebook.
     :param top_k:      number of top features to display (ordered by no-window importance).
@@ -359,20 +409,20 @@ def plot_shap_comparison(shap_store, top_k=20):
     """
     d = _prepare_shap_comparison(shap_store, top_k)
 
-    sv_b      = d["sv_b"]
-    sv_n      = d["sv_n"]
+    sv_b = d["sv_b"]
+    sv_n = d["sv_n"]
     ranking_n = d["ranking_n"]
     rank_base = d["rank_base"]
-    idx_base  = d["idx_base"]
-    idx_now   = d["idx_now"]
+    idx_base = d["idx_base"]
+    idx_now = d["idx_now"]
 
     COLOR_BASELINE = "#1f77b4"
     COLOR_NOWINDOW = "#ff7f0e"
-    COLOR_UP       = "#2e7d32"
-    COLOR_DOWN     = "#c62828"
-    COLOR_FLAT     = "#616161"
+    COLOR_UP = "#2e7d32"
+    COLOR_DOWN = "#c62828"
+    COLOR_FLAT = "#616161"
 
-    Y_OFFSET  = 0.22
+    Y_OFFSET = 0.22
     BOX_WIDTH = 0.35
 
     fig, ax = plt.subplots(figsize=(11, 0.25 * top_k + 2))
@@ -391,15 +441,20 @@ def plot_shap_comparison(shap_store, top_k=20):
                 medianprops=dict(color="white", lw=1.5),
                 whiskerprops=dict(color=COLOR_BASELINE, lw=1),
                 capprops=dict(color=COLOR_BASELINE, lw=1),
-                boxprops=dict(facecolor=COLOR_BASELINE,
-                              edgecolor=COLOR_BASELINE, alpha=0.75),
+                boxprops=dict(facecolor=COLOR_BASELINE, edgecolor=COLOR_BASELINE, alpha=0.75),
             )
         else:
             ax.axhspan(i - 0.45, i + 0.45, color="#f5f5f5", zorder=0)
-            ax.text(0, i - Y_OFFSET,
-                    "not in bias-controlled model",
-                    ha="center", va="center", fontsize=8,
-                    color="#888888", style="italic")
+            ax.text(
+                0,
+                i - Y_OFFSET,
+                "not in bias-controlled model",
+                ha="center",
+                va="center",
+                fontsize=8,
+                color="#888888",
+                style="italic",
+            )
 
         # No-window (orange, below)
         col_n = idx_now[feat]
@@ -413,8 +468,7 @@ def plot_shap_comparison(shap_store, top_k=20):
             medianprops=dict(color="white", lw=1.5),
             whiskerprops=dict(color=COLOR_NOWINDOW, lw=1),
             capprops=dict(color=COLOR_NOWINDOW, lw=1),
-            boxprops=dict(facecolor=COLOR_NOWINDOW,
-                          edgecolor=COLOR_NOWINDOW, alpha=0.75),
+            boxprops=dict(facecolor=COLOR_NOWINDOW, edgecolor=COLOR_NOWINDOW, alpha=0.75),
         )
 
     ax.axvline(0, color="#999999", lw=0.7, zorder=1)
@@ -443,42 +497,69 @@ def plot_shap_comparison(shap_store, top_k=20):
             old_rank = rank_base[feat]
             delta = old_rank - new_rank
             if delta > 0:
-                txt   = f"{old_rank} → {new_rank}  (+{delta})"
+                txt = f"{old_rank} → {new_rank}  (+{delta})"
                 color = COLOR_UP
             elif delta < 0:
-                txt   = f"{old_rank} → {new_rank}  ({delta})"
+                txt = f"{old_rank} → {new_rank}  ({delta})"
                 color = COLOR_DOWN
             else:
-                txt   = f"{old_rank} → {new_rank}"
+                txt = f"{old_rank} → {new_rank}"
                 color = COLOR_FLAT
         else:
-            txt   = f"new → {new_rank}"
+            txt = f"new → {new_rank}"
             color = COLOR_UP
 
-        ax.text(xr, i, txt,
-                ha="left", va="center",
-                fontsize=8.5, fontweight="bold", color=color,
-                transform=ax.get_yaxis_transform(), clip_on=False,
-                family="monospace")
+        ax.text(
+            xr,
+            i,
+            txt,
+            ha="left",
+            va="center",
+            fontsize=8.5,
+            fontweight="bold",
+            color=color,
+            transform=ax.get_yaxis_transform(),
+            clip_on=False,
+            family="monospace",
+        )
 
-    ax.text(xr, -0.7, "Rank shift",
-            ha="left", va="center", fontsize=9, fontweight="bold",
-            color="#333333", transform=ax.get_yaxis_transform(),
-            clip_on=False)
+    ax.text(
+        xr,
+        -0.7,
+        "Rank shift",
+        ha="left",
+        va="center",
+        fontsize=9,
+        fontweight="bold",
+        color="#333333",
+        transform=ax.get_yaxis_transform(),
+        clip_on=False,
+    )
 
     # Legend
     box_legend = [
-        Patch(facecolor=COLOR_BASELINE, alpha=0.75, edgecolor=COLOR_BASELINE,
-              label="Bias-controlled (proposed)"),
-        Patch(facecolor=COLOR_NOWINDOW, alpha=0.75, edgecolor=COLOR_NOWINDOW,
-              label="No time-window (with leakage)"),
+        Patch(
+            facecolor=COLOR_BASELINE,
+            alpha=0.75,
+            edgecolor=COLOR_BASELINE,
+            label="Bias-controlled (proposed)",
+        ),
+        Patch(
+            facecolor=COLOR_NOWINDOW,
+            alpha=0.75,
+            edgecolor=COLOR_NOWINDOW,
+            label="No time-window (with leakage)",
+        ),
     ]
-    leg1 = ax.legend(handles=box_legend,
-                     loc="upper left",
-                     bbox_to_anchor=(0.0, -0.05),
-                     frameon=False, fontsize=9,
-                     title="SHAP distribution",
-                     title_fontsize=9)
+    leg1 = ax.legend(
+        handles=box_legend,
+        loc="upper left",
+        bbox_to_anchor=(0.0, -0.05),
+        frameon=False,
+        fontsize=9,
+        title="SHAP distribution",
+        title_fontsize=9,
+    )
     leg1._legend_box.align = "left"
     ax.add_artist(leg1)
 
@@ -504,11 +585,11 @@ def compute_wilcoxon_table(shap_store, top_k=20):
     """
     d = _prepare_shap_comparison(shap_store, top_k)
 
-    sv_b      = d["sv_b"]
-    sv_n      = d["sv_n"]
+    sv_b = d["sv_b"]
+    sv_n = d["sv_n"]
     ranking_n = d["ranking_n"]
-    idx_base  = d["idx_base"]
-    idx_now   = d["idx_now"]
+    idx_base = d["idx_base"]
+    idx_now = d["idx_now"]
 
     results = []
 
@@ -530,18 +611,19 @@ def compute_wilcoxon_table(shap_store, top_k=20):
         abs_n = np.abs(x_n)
 
         try:
-            w_stat, w_p = wilcoxon(abs_b, abs_n, alternative="two-sided")
+            _, w_p = wilcoxon(abs_b, abs_n, alternative="two-sided")
         except ValueError:
-            w_stat, w_p = np.nan, 1.0
+            w_p = 1.0
 
-        results.append({
-            "Feature":            feat,
-            "Mean |SHAP| w.":     abs_b.mean(),
-            "Mean |SHAP| w/o w.": abs_n.mean(),
-            "Diff.":              abs_b.mean() - abs_n.mean(),
-            #"wilcoxon_stat":      w_stat,
-            "wilcoxon_p_value":   w_p,
-        })
+        results.append(
+            {
+                "Feature": feat,
+                "Mean |SHAP| w.": abs_b.mean(),
+                "Mean |SHAP| w/o w.": abs_n.mean(),
+                "Diff.": abs_b.mean() - abs_n.mean(),
+                "wilcoxon_p_value": w_p,
+            }
+        )
 
     df = pd.DataFrame(results)
 
@@ -571,14 +653,13 @@ def compute_wilcoxon_table(shap_store, top_k=20):
 
 
 def get_probs(loader, model, device):
-
     """
     Computes the predicted probabilities and true labels for a given data loader, model, and device.
-    
+
     :param loader: A PyTorch DataLoader that provides batches of input features and target labels.
     :param model: A PyTorch model that will be used to make predictions on the input features.
     :param device: The device (e.g., 'cpu' or 'cuda') on which the model and data will be processed.
-    :return: A tuple containing two NumPy arrays: the predicted probabilities and the true labels. 
+    :return: A tuple containing two NumPy arrays: the predicted probabilities and the true labels.
     """
 
     all_probs, all_labels = [], []
@@ -591,12 +672,14 @@ def get_probs(loader, model, device):
             all_labels.extend(y_batch.numpy())
     return np.array(all_probs).flatten(), np.array(all_labels).flatten().astype(int)
 
+
 def _order_metrics(keys):
     """
     Reorder metric keys to the paper's column order:
     AUC, F1 (test), Prec (test), Rec (test), Acc (test), Acc (train).
     Matching is case-insensitive on substrings; unmatched keys are appended.
     """
+
     def _slot(k):
         s = k.lower().replace("_", " ").replace("-", " ")
         is_train = "train" in s
@@ -606,7 +689,7 @@ def _order_metrics(keys):
             return 1
         if "prec" in s:
             return 2
-        if "rec" in s:                       # recall (not 'prec')
+        if "rec" in s:  # recall (not 'prec')
             return 3
         if "acc" in s:
             return 5 if is_train else 4
@@ -655,9 +738,16 @@ def _order_models(models):
     return sorted(models, key=_rank)
 
 
-def compare_metrics(metrics_store, tag_a, tag_b,
-                    metric_order=None, model_order=None,
-                    latex=False, decimals=3, label_b="w/o window"):
+def compare_metrics(
+    metrics_store,
+    tag_a,
+    tag_b,
+    metric_order=None,
+    model_order=None,
+    latex=False,
+    decimals=3,
+    label_b="w/o window",
+):
     """
     Builds a per-model comparison table between two experiments, formatted to
     match Table 4 of the paper (tab:ablation_window).
@@ -722,9 +812,11 @@ def compare_metrics(metrics_store, tag_a, tag_b,
 
         runs_a, runs_b = metrics_store[key_a], metrics_store[key_b]
         if len(runs_a) != len(runs_b):
-            print(f"⚠️  Model '{m}': {len(runs_a)} seed(s) for '{tag_a}' but "
-                  f"{len(runs_b)} for '{tag_b}'; the two rows average over "
-                  f"different numbers of runs.")
+            print(
+                f"⚠️  Model '{m}': {len(runs_a)} seed(s) for '{tag_a}' but "
+                f"{len(runs_b)} for '{tag_b}'; the two rows average over "
+                f"different numbers of runs."
+            )
 
         if metric_order is not None:
             metrics = metric_order
@@ -739,8 +831,7 @@ def compare_metrics(metrics_store, tag_a, tag_b,
 
         rows[m] = {met: _fmt_value(*agg_a[met]) for met in metrics}
         rows[f"{m} {label_b}"] = {
-            met: _fmt_value(*agg_b[met]) + _fmt_pct(agg_a[met][0], agg_b[met][0])
-            for met in metrics
+            met: _fmt_value(*agg_b[met]) + _fmt_pct(agg_a[met][0], agg_b[met][0]) for met in metrics
         }
 
     # preserve baseline/w-o ordering
@@ -759,9 +850,9 @@ def compare_metrics(metrics_store, tag_a, tag_b,
     return df
 
 
-def summarize_metrics(metrics_store, tag,
-                      metric_order=None, model_order=None,
-                      latex=False, decimals=3):
+def summarize_metrics(
+    metrics_store, tag, metric_order=None, model_order=None, latex=False, decimals=3
+):
     """
     Builds the result table of a single experiment: one row per model, every
     cell the 'mean ± std' across that model's evaluation seeds.
@@ -790,8 +881,10 @@ def summarize_metrics(metrics_store, tag,
     """
     present = {m for (m, t) in metrics_store.keys() if t == tag}
     if not present:
-        raise KeyError(f"metrics_store has no entry for tag '{tag}'. "
-                       f"Available tags: {sorted({t for (_, t) in metrics_store})}")
+        raise KeyError(
+            f"metrics_store has no entry for tag '{tag}'. "
+            f"Available tags: {sorted({t for (_, t) in metrics_store})}"
+        )
 
     models = model_order if model_order is not None else _order_models(present)
 
@@ -820,8 +913,7 @@ def summarize_metrics(metrics_store, tag,
         agg = _aggregate_runs(runs, metrics)
         # The seed count is part of the result: a '± 0.000' cell means one run,
         # not a model that is insensitive to the split.
-        rows[m] = {"Seeds": len(runs),
-                   **{met: _fmt_value(*agg[met]) for met in metrics}}
+        rows[m] = {"Seeds": len(runs), **{met: _fmt_value(*agg[met]) for met in metrics}}
 
     df = pd.DataFrame.from_dict(rows, orient="index", columns=["Seeds"] + list(cols))
     df = df.loc[[m for m in models if m in rows]]

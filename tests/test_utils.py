@@ -2,10 +2,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.utils import (clear_split_cache, compare_metrics, compute_permutation_shap,
-                       get_split, plot_correlation_heatmap, prepare_splits,
-                       summarize_metrics)
-
+from src.utils import (
+    clear_split_cache,
+    compare_metrics,
+    compute_permutation_shap,
+    get_split,
+    plot_correlation_heatmap,
+    prepare_splits,
+    summarize_metrics,
+)
 
 # --- compute_permutation_shap ----------------------------------------------
 
@@ -158,8 +163,9 @@ def test_scaler_is_fitted_on_train_only(toy_frame):
 
     # RobustScaler centres on the training median, so the training set is the
     # only one guaranteed to come out with a ~zero median.
-    np.testing.assert_allclose(np.median(s["X_train_scaled"], axis=0),
-                               np.zeros(X.shape[1]), atol=1e-9)
+    np.testing.assert_allclose(
+        np.median(s["X_train_scaled"], axis=0), np.zeros(X.shape[1]), atol=1e-9
+    )
 
 
 def test_get_split_caches_to_disk_and_reuses_it(toy_frame, tmp_path):
@@ -187,9 +193,18 @@ def test_get_split_keeps_tags_and_seeds_apart(toy_frame, tmp_path):
 
 
 def _runs(auc_values, f1=0.5):
-    return [{"AUC": a, "F1": f1, "accuracy": 0.7, "precision": 0.6,
-             "recall": 0.6, "accuracy_train": 0.9, "seed": i}
-            for i, a in enumerate(auc_values, start=1)]
+    return [
+        {
+            "AUC": a,
+            "F1": f1,
+            "accuracy": 0.7,
+            "precision": 0.6,
+            "recall": 0.6,
+            "accuracy_train": 0.9,
+            "seed": i,
+        }
+        for i, a in enumerate(auc_values, start=1)
+    ]
 
 
 def test_reports_mean_and_std_across_seeds():
@@ -207,7 +222,7 @@ def test_reports_mean_and_std_across_seeds():
 
 def test_percent_change_is_computed_on_the_means():
     store = {
-        ("rf", "window"): _runs([0.40, 0.60]),   # mean 0.50
+        ("rf", "window"): _runs([0.40, 0.60]),  # mean 0.50
         ("rf", "nowindow"): _runs([0.70, 0.80]),  # mean 0.75
     }
 
@@ -229,7 +244,7 @@ def test_single_seed_gives_zero_std_instead_of_nan():
     assert df.set_index("Model")["AUC"]["rf"] == "0.800 ± 0.000"
 
 
-def test_latex_output_uses_pm_notation():
+def test_compare_metrics_latex_output_uses_pm_notation():
     store = {
         ("rf", "window"): _runs([0.80, 0.82]),
         ("rf", "nowindow"): _runs([0.90, 0.90]),
@@ -245,7 +260,7 @@ def test_models_missing_from_one_experiment_are_skipped():
     store = {
         ("rf", "window"): _runs([0.80]),
         ("rf", "nowindow"): _runs([0.85]),
-        ("svm", "window"): _runs([0.70]),   # no nowindow counterpart
+        ("svm", "window"): _runs([0.70]),  # no nowindow counterpart
     }
 
     df = compare_metrics(store, "window", "nowindow")
@@ -329,7 +344,7 @@ def test_reports_one_row_per_model_with_mean_and_std():
 
     df = summarize_metrics(store, "window")
 
-    assert list(df["Model"]) == ["lr", "rf"]          # paper order
+    assert list(df["Model"]) == ["lr", "rf"]  # paper order
     assert df.set_index("Model")["AUC"]["rf"] == "0.820 ± 0.020"
 
 
@@ -365,8 +380,16 @@ def test_columns_follow_the_paper_order():
 
     df = summarize_metrics(store, "window")
 
-    assert list(df.columns) == ["Model", "Seeds", "AUC", "F1", "precision",
-                                "recall", "accuracy", "accuracy_train"]
+    assert list(df.columns) == [
+        "Model",
+        "Seeds",
+        "AUC",
+        "F1",
+        "precision",
+        "recall",
+        "accuracy",
+        "accuracy_train",
+    ]
 
 
 def test_tuning_metrics_are_not_reported():
@@ -382,7 +405,7 @@ def test_tuning_metrics_are_not_reported():
     assert "F1_train" not in df.columns
 
 
-def test_latex_output_uses_pm_notation():
+def test_summarize_metrics_latex_output_uses_pm_notation():
     store = {("rf", "window"): _runs([0.80, 0.82, 0.84])}
 
     df = summarize_metrics(store, "window", latex=True)
@@ -416,8 +439,9 @@ def toy_categorical_frame():
 def test_categorical_columns_come_out_numeric(toy_categorical_frame):
     X, y = toy_categorical_frame
 
-    s = prepare_splits(X, y, seed=1, test_size=0.4,
-                       categorical_columns=["HQCountry"], min_frequency=0.05)
+    s = prepare_splits(
+        X, y, seed=1, test_size=0.4, categorical_columns=["HQCountry"], min_frequency=0.05
+    )
 
     for key in ("X_train", "X_val", "X_test"):
         assert np.issubdtype(s[key]["HQCountry"].dtype, np.floating)
@@ -426,8 +450,9 @@ def test_categorical_columns_come_out_numeric(toy_categorical_frame):
 def test_split_exposes_the_fitted_encodings(toy_categorical_frame):
     X, y = toy_categorical_frame
 
-    s = prepare_splits(X, y, seed=1, test_size=0.4,
-                       categorical_columns=["HQCountry"], min_frequency=0.05)
+    s = prepare_splits(
+        X, y, seed=1, test_size=0.4, categorical_columns=["HQCountry"], min_frequency=0.05
+    )
 
     assert set(s["encodings"]) == {"HQCountry"}
     assert sum(s["encodings"]["HQCountry"].values()) == pytest.approx(1.0)
@@ -438,8 +463,9 @@ def test_encoded_values_are_the_training_shares(toy_categorical_frame):
     on exactly as many rows as it holds."""
     X, y = toy_categorical_frame
 
-    s = prepare_splits(X, y, seed=1, test_size=0.4,
-                       categorical_columns=["HQCountry"], min_frequency=0.05)
+    s = prepare_splits(
+        X, y, seed=1, test_size=0.4, categorical_columns=["HQCountry"], min_frequency=0.05
+    )
 
     enc = s["encodings"]["HQCountry"]
     col = s["X_train"]["HQCountry"]
@@ -455,8 +481,9 @@ def test_held_out_rows_are_encoded_only_with_training_values(toy_categorical_fra
     split did not produce."""
     X, y = toy_categorical_frame
 
-    s = prepare_splits(X, y, seed=1, test_size=0.4,
-                       categorical_columns=["HQCountry"], min_frequency=0.05)
+    s = prepare_splits(
+        X, y, seed=1, test_size=0.4, categorical_columns=["HQCountry"], min_frequency=0.05
+    )
 
     training_values = set(np.round(list(s["encodings"]["HQCountry"].values()), 12))
     for key in ("X_val", "X_test"):
@@ -466,10 +493,12 @@ def test_held_out_rows_are_encoded_only_with_training_values(toy_categorical_fra
 def test_min_frequency_controls_how_much_is_pooled(toy_categorical_frame):
     X, y = toy_categorical_frame
 
-    lenient = prepare_splits(X, y, seed=1, test_size=0.4,
-                             categorical_columns=["HQCountry"], min_frequency=0.05)
-    strict = prepare_splits(X, y, seed=1, test_size=0.4,
-                            categorical_columns=["HQCountry"], min_frequency=0.30)
+    lenient = prepare_splits(
+        X, y, seed=1, test_size=0.4, categorical_columns=["HQCountry"], min_frequency=0.05
+    )
+    strict = prepare_splits(
+        X, y, seed=1, test_size=0.4, categorical_columns=["HQCountry"], min_frequency=0.30
+    )
 
     assert len(strict["encodings"]["HQCountry"]) < len(lenient["encodings"]["HQCountry"])
     assert strict["encodings"]["HQCountry"]["Others"] > lenient["encodings"]["HQCountry"]["Others"]
@@ -480,8 +509,9 @@ def test_encoding_happens_before_imputation(toy_categorical_frame):
     X, y = toy_categorical_frame
     X.loc[X.index[:10], "HQCountry"] = None
 
-    s = prepare_splits(X, y, seed=1, test_size=0.4,
-                       categorical_columns=["HQCountry"], min_frequency=0.05)
+    s = prepare_splits(
+        X, y, seed=1, test_size=0.4, categorical_columns=["HQCountry"], min_frequency=0.05
+    )
 
     for key in ("X_train_imp", "X_val_imp", "X_test_imp"):
         assert np.isfinite(s[key]).all()
@@ -491,9 +521,14 @@ def test_columns_absent_from_the_frame_are_ignored(toy_categorical_frame):
     """noteam/nocompetitors drop features, so one config must serve them all."""
     X, y = toy_categorical_frame
 
-    s = prepare_splits(X, y, seed=1, test_size=0.4,
-                       categorical_columns=["HQCountry", "NotHere"],
-                       min_frequency=0.05)
+    s = prepare_splits(
+        X,
+        y,
+        seed=1,
+        test_size=0.4,
+        categorical_columns=["HQCountry", "NotHere"],
+        min_frequency=0.05,
+    )
 
     assert set(s["encodings"]) == {"HQCountry"}
 
@@ -512,8 +547,9 @@ def test_no_categorical_columns_leaves_the_frame_untouched(toy_frame):
 def test_cache_key_separates_different_thresholds(toy_categorical_frame, tmp_path):
     """A split cached before the threshold changed must not be served after."""
     X, y = toy_categorical_frame
-    kwargs = dict(seed=1, test_size=0.4, cache_dir=tmp_path, tag="window",
-                  categorical_columns=["HQCountry"])
+    kwargs = dict(
+        seed=1, test_size=0.4, cache_dir=tmp_path, tag="window", categorical_columns=["HQCountry"]
+    )
 
     a = get_split(X, y, min_frequency=0.05, **kwargs)
     b = get_split(X, y, min_frequency=0.30, **kwargs)
@@ -528,8 +564,9 @@ def test_force_regenerates_a_cached_split(toy_categorical_frame, tmp_path):
     import joblib
 
     X, y = toy_categorical_frame
-    kwargs = dict(seed=1, test_size=0.4, cache_dir=tmp_path, tag="window",
-                  categorical_columns=["HQCountry"])
+    kwargs = dict(
+        seed=1, test_size=0.4, cache_dir=tmp_path, tag="window", categorical_columns=["HQCountry"]
+    )
 
     get_split(X, y, **kwargs)
     cache_file = next(tmp_path.glob("*.joblib"))
@@ -545,8 +582,9 @@ def test_without_force_the_cached_split_is_reused(toy_categorical_frame, tmp_pat
     import joblib
 
     X, y = toy_categorical_frame
-    kwargs = dict(seed=1, test_size=0.4, cache_dir=tmp_path, tag="window",
-                  categorical_columns=["HQCountry"])
+    kwargs = dict(
+        seed=1, test_size=0.4, cache_dir=tmp_path, tag="window", categorical_columns=["HQCountry"]
+    )
 
     get_split(X, y, **kwargs)
     cache_file = next(tmp_path.glob("*.joblib"))
@@ -558,8 +596,11 @@ def test_without_force_the_cached_split_is_reused(toy_categorical_frame, tmp_pat
 def test_clear_split_cache_removes_only_the_requested_tag(tmp_path):
     import joblib
 
-    for name in ("split_window_seed1_abc.joblib", "split_window_seed2_abc.joblib",
-                 "split_nowindow_seed1_abc.joblib"):
+    for name in (
+        "split_window_seed1_abc.joblib",
+        "split_window_seed2_abc.joblib",
+        "split_nowindow_seed1_abc.joblib",
+    ):
         joblib.dump({"x": 1}, tmp_path / name)
 
     removed = clear_split_cache(cache_dir=tmp_path, tag="window")
@@ -591,16 +632,19 @@ def test_correlation_heatmap_ignores_raw_categorical_columns():
     """The processed CSV now carries HQCountry as a string; pandas .corr()
     raises on it, and the notebook draws this heatmap before the split."""
     import matplotlib
+
     matplotlib.use("Agg")
     from matplotlib import pyplot as plt
 
-    df = pd.DataFrame({
-        "CompanyID": [1, 2, 3, 4],
-        "Target": [0, 1, 0, 1],
-        "Age": [1.0, 2.0, 3.0, 4.0],
-        "Total_People": [4.0, 3.0, 2.0, 1.0],
-        "HQCountry": ["USA", "ITA", "USA", "GBR"],
-    })
+    df = pd.DataFrame(
+        {
+            "CompanyID": [1, 2, 3, 4],
+            "Target": [0, 1, 0, 1],
+            "Age": [1.0, 2.0, 3.0, 4.0],
+            "Total_People": [4.0, 3.0, 2.0, 1.0],
+            "HQCountry": ["USA", "ITA", "USA", "GBR"],
+        }
+    )
 
     corr = plot_correlation_heatmap(df)
     plt.close("all")

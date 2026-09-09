@@ -8,21 +8,21 @@ each one.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 #: Every bug flag, in the order of the spec's registry (B1..B10).
 BUG_FLAGS: tuple[str, ...] = (
-    "fix_founding_year_threshold",       # B1
-    "fix_is_other_label",                # B2
-    "fix_stageblock_na",                 # B3
-    "fix_same_country_narm",             # B4
+    "fix_founding_year_threshold",  # B1
+    "fix_is_other_label",  # B2
+    "fix_stageblock_na",  # B3
+    "fix_same_country_narm",  # B4
     "fix_permanenza_media_per_company",  # B5
-    "fix_negative_delta",                # B6
-    "fix_institute_na_literal",          # B7
-    "fix_europe_asymmetry",              # B8
-    "fix_dup_coalesce",                  # B9
-    "fix_is_out_na",                     # B10
+    "fix_negative_delta",  # B6
+    "fix_institute_na_literal",  # B7
+    "fix_europe_asymmetry",  # B8
+    "fix_dup_coalesce",  # B9
+    "fix_is_out_na",  # B10
 )
 
 IMPUTATION_STRATEGIES: tuple[str, ...] = ("r_legacy", "r_injected", "leakage_free")
@@ -32,8 +32,8 @@ IMPUTATION_STRATEGIES: tuple[str, ...] = ("r_legacy", "r_injected", "leakage_fre
 class PanelConfig:
     """Paths, bug flags and imputation strategy for one pipeline run."""
 
-    raw_dir: Path = Path("config/RCode/DB pulito")
-    ref_dir: Path = Path("config/RCode/DatiIntermedi")
+    raw_dir: Path = Path("data/raw/pitchbook")
+    ref_dir: Path = Path("data/reference")
     interim_dir: Path = Path("data/interim")
 
     seed: int = 12

@@ -1,14 +1,12 @@
 """
 Frequency encoding of categorical features, fitted on a training split alone.
 
-The encoding used to run on the whole dataset before the split (in
-``handleCategoricalVariables``), so the frequency attached to a validation or
-test row was computed partly from that row's own set. That is the look-ahead
-leakage this project is about, applied to the features instead of the target.
+A share computed over the whole dataset would be computed partly from the very
+rows it later encodes: that is the look-ahead leakage this project is about,
+applied to the features instead of the target.
 
-Here the shares are estimated on the training rows only and then *looked up*
-for the held-out rows, so a held-out row contributes nothing to its own
-encoding.
+So the shares are estimated on the training rows only and then *looked up* for
+the held-out rows, and a held-out row contributes nothing to its own encoding.
 """
 
 import pandas as pd
@@ -17,8 +15,9 @@ DEFAULT_MIN_FREQUENCY = 0.05
 DEFAULT_OTHER_LABEL = "Others"
 
 
-def fit_frequency_encoding(train_series, min_frequency=DEFAULT_MIN_FREQUENCY,
-                           other_label=DEFAULT_OTHER_LABEL):
+def fit_frequency_encoding(
+    train_series, min_frequency=DEFAULT_MIN_FREQUENCY, other_label=DEFAULT_OTHER_LABEL
+):
     """
     Learns the training share of every category of one categorical column.
 

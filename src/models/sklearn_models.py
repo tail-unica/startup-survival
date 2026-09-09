@@ -1,0 +1,175 @@
+"""The five families that are thin wrappers over a scikit-learn estimator.
+
+Three of them (RF, LightGBM, Decision Tree) are trees and share TreeExplainer;
+Logistic Regression is linear and gets LinearExplainer; the RBF SVM admits
+neither and falls back to PermutationExplainer.
+"""
+
+from __future__ import annotations
+
+import lightgbm as lgb
+import shap
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
+
+from src.models.base import Model
+from src.utils import compute_permutation_shap
+
+#: Rows explained by the two explainers that scale to the whole test sample.
+#: SVM and TabPFN get a smaller, explicitly budgeted number instead.
+N_EXPLAIN_CHEAP = 1000
+
+
+class _TreeModel(Model):
+    """Shared explainer for the three tree ensembles.
+
+    Explained on the raw test frame, not on the imputed one: TreeExplainer
+    follows the fitted split structure and handles the missing values itself,
+    and the raw frame is what carries the feature names into the summary plot.
+    """
+
+    def explain(self, split, shap_cfg):
+        sample = split["X_test"].iloc[:N_EXPLAIN_CHEAP]
+        result = shap.TreeExplainer(self.model).shap_values(sample)
+
+        # The positive class comes back differently across the three libraries:
+        # a two-element list, a (rows, features, classes) array, or already the
+        # single column of interest.
+        if isinstance(result, list):
+            values = result[1]
+        elif hasattr(result, "shape") and len(result.shape) == 3:
+            values = result[:, :, 1]
+        else:
+            values = result
+
+        return values, sample
+
+
+class RandomForestModel(_TreeModel):
+    @classmethod
+    def from_sweep(cls, cfg, seed):
+        return cls(
+            RandomForestClassifier(
+                n_estimators=cfg.rf_n_estimators,
+                max_depth=cfg.rf_max_depth,
+                min_samples_leaf=cfg.rf_min_samples_leaf,
+                max_features="log2",
+                class_weight="balanced",
+                random_state=seed,
+            ),
+            seed,
+        )
+
+
+class LightGBMModel(_TreeModel):
+    @classmethod
+    def from_sweep(cls, cfg, seed):
+        # scale_pos_weight is set from the training split, so it is filled in by
+        # fit() rather than here.
+        return cls(
+            lgb.LGBMClassifier(
+                n_estimators=cfg.lgb_n_estimators,
+                learning_rate=cfg.learning_rate,
+                max_depth=cfg.lgb_max_depth,
+                min_child_weight=cfg.min_child_weight,
+                subsample=cfg.subsample,
+                colsample_bytree=cfg.colsample_bytree,
+                reg_alpha=cfg.reg_alpha,
+                reg_lambda=cfg.reg_lambda,
+                random_state=seed,
+            ),
+            seed,
+        )
+
+    def fit(self, X_train, y_train, X_val=None, y_val=None):
+        # Class imbalance is corrected by the negative-to-positive ratio of the
+        # training split (80/20 -> 4), the LightGBM equivalent of the
+        # class_weight="balanced" the other estimators take at construction.
+        counts = y_train.value_counts()
+        self.model.set_params(scale_pos_weight=float(counts[0] / counts[1]))
+        self.model.fit(X_train, y_train)
+
+
+class DecisionTreeModel(_TreeModel):
+    @classmethod
+    def from_sweep(cls, cfg, seed):
+        return cls(
+            DecisionTreeClassifier(
+                max_depth=cfg.dt_max_depth,
+                min_samples_leaf=cfg.dt_min_samples_leaf,
+                min_samples_split=cfg.dt_min_samples_split,
+                criterion=cfg.dt_criterion,
+                class_weight="balanced",
+                random_state=seed,
+            ),
+            seed,
+        )
+
+
+class LogisticRegressionModel(Model):
+    wants_scaled = True
+
+    @classmethod
+    def from_sweep(cls, cfg, seed):
+        return cls(
+            LogisticRegression(
+                C=cfg.lr_C,
+                penalty=cfg.lr_penalty,
+                solver="saga",
+                class_weight="balanced",
+                max_iter=1000,
+                random_state=seed,
+            ),
+            seed,
+        )
+
+    def explain(self, split, shap_cfg):
+        sample = split["X_test_scaled"][:N_EXPLAIN_CHEAP]
+        explainer = shap.LinearExplainer(self.model, split["X_train_scaled"])
+        return explainer.shap_values(sample), sample
+
+
+class SVMModel(Model):
+    # An RBF kernel compares distances, so unscaled features would let the
+    # widest-range column dominate.
+    wants_scaled = True
+
+    @classmethod
+    def from_sweep(cls, cfg, seed):
+        return cls(
+            SVC(
+                C=cfg.svm_C,
+                gamma=cfg.svm_gamma,
+                kernel="rbf",
+                probability=True,
+                class_weight="balanced",
+                cache_size=1000,
+                random_state=seed,
+            ),
+            seed,
+        )
+
+    def score(self, X):
+        # SVC.predict() takes the sign of the decision function while
+        # predict_proba() goes through Platt scaling, and the two disagree.
+        # Every other model here decides at p >= 0.5, and the comparison table
+        # is only meaningful if the SVM decides the same way.
+        return self.score_by_threshold(X)
+
+    def explain(self, split, shap_cfg):
+        # No TreeExplainer, no LinearExplainer (an RBF kernel is not linear),
+        # and KernelExplainer is intractable against thousands of support
+        # vectors. PermutationExplainer needs only 2*n_features+1 evaluations
+        # per explained row, on an explicit budget from config.yaml.
+        sample = split["X_test_scaled"][: shap_cfg["n_explain"]]
+        values = compute_permutation_shap(
+            self.model,
+            split["X_train_scaled"],
+            sample,
+            n_explain=shap_cfg["n_explain"],
+            n_background=shap_cfg["n_background"],
+            random_state=self.seed,
+        )
+        return values, sample
