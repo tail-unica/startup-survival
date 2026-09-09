@@ -19,6 +19,7 @@ from src.panel.rutils import (
     r_if_else,
     scale_r,
 )
+from src.panel.validate import COLUMN_FINALISED_AT_STAGE
 
 #: `CompanyBoardTeamRelation`, all 14 columns: the dedup block rbinds an
 #: aggregate of these onto the frame itself, so the sets must match.
@@ -389,3 +390,114 @@ def build_db3(cfg: PanelConfig) -> pl.DataFrame:
 
 def run_db3(cfg: PanelConfig) -> None:
     build_db3(cfg).write_parquet(cfg.interim("db3.parquet"))
+
+
+#: `1_Arrange_DB.R:617-644` — the team columns of db_master_2, all final after
+#: this stage: nothing downstream writes to them again.
+TEAM_COLUMNS = [
+    "Total_People", "Percent_Females", "Is_Eco", "Is_Eng", "Is_NS", "Is_Hum",
+    "Is_SS", "Is_Med", "Is_Other", "Is_Law", "Is_IT", "Avg_Earliest_Year",
+    "Highest_Degree_Max", "Highest_Degree_Mean", "Institute", "RolesCount_Max",
+    "RolesCount_Mean", "Positions", "BoardSeats", "OtherRoles", "WorkExp_Idx_Max",
+    "WorkExp_Idx_Mean", "Total_Founders",
+]  # fmt: skip
+
+_ANY_FLAGS = [
+    "Is_Eco", "Is_Eng", "Is_NS", "Is_Hum", "Is_SS", "Is_Med", "Is_Other", "Is_Law", "Is_IT",
+]  # fmt: skip
+
+
+def _seq_ranges(lo: pl.Expr, hi: pl.Expr) -> pl.Expr:
+    """``seq(lo, hi)`` inclusive. Callers guarantee ``hi >= lo`` here: DeltaEnd
+    is clamped to DeltaStart in stage 2a, so no descending case arises."""
+    return pl.int_ranges(lo, hi + 1)
+
+
+def run_panel(cfg: PanelConfig) -> None:
+    """`1_Arrange_DB.R:527-664` — expand db3 to company-years and join the
+    skeleton."""
+    db3 = pl.read_parquet(cfg.interim("db3.parquet"))
+
+    # One row per company-year spanned by anyone on its team (lines 531-544).
+    company_years = (
+        db3.group_by("CompanyID")
+        .agg(
+            pl.col("DeltaStart").min().alias("_lo"),
+            pl.col("DeltaEnd").max().alias("_hi"),
+        )
+        .with_columns(
+            pl.when(pl.col("_lo").is_null() | pl.col("_hi").is_null())
+            .then(None)
+            .otherwise(_seq_ranges(pl.col("_lo"), pl.col("_hi")))
+            .alias("Years")
+        )
+        # unnest(keep_empty = TRUE): a company with no usable window keeps one
+        # row with a null year.
+        .explode("Years")
+        .select("CompanyID", "Years")
+    )
+
+    # One row per person-year (lines 549-555).
+    person_years = (
+        db3.filter(pl.col("DeltaStart").is_not_null())
+        .with_columns(pl.col("DeltaEnd").fill_null(pl.col("DeltaStart")))
+        .with_columns(_seq_ranges(pl.col("DeltaStart"), pl.col("DeltaEnd")).alias("Years"))
+        .explode("Years")
+    )
+
+    threshold = 1999 if cfg.fix_founding_year_threshold else 2000
+    # YearFounded arrives from the person side, so a company-year that matched
+    # nobody has a null YearFounded and this filter removes it. That is why the
+    # phantom `Total_People = 1` row the aggregation could produce never exists.
+    expanded = company_years.join(person_years, on=["CompanyID", "Years"], how="left").filter(
+        pl.col("YearFounded") > threshold
+    )
+
+    institute = pl.col("Institute")
+    if not cfg.fix_institute_na_literal:
+        # Bug B7: paste() renders a missing institute as the text "NA".
+        institute = institute.fill_null("NA")
+
+    total = pl.len()
+    team = expanded.group_by(["CompanyID", "Years"]).agg(
+        total.alias("Total_People"),
+        (pl.col("Gender").eq("Female").sum() / total * 100).alias("Percent_Females"),
+        *[pl.col(c).fill_null(False).any().alias(c) for c in _ANY_FLAGS],
+        pl.col("Earliest_Year").mean().alias("Avg_Earliest_Year"),
+        pl.col("Highest_Degree").max().alias("Highest_Degree_Max"),
+        pl.col("Highest_Degree").mean().alias("Highest_Degree_Mean"),
+        institute.unique(maintain_order=True).str.join("; ").alias("Institute"),
+        pl.col("RolesCount_Total").max().alias("RolesCount_Max"),
+        pl.col("RolesCount_Total").mean().alias("RolesCount_Mean"),
+        pl.col("Positions").mean().alias("Positions"),
+        pl.col("BoardSeats").mean().alias("BoardSeats"),
+        pl.col("OtherRoles").mean().alias("OtherRoles"),
+        pl.col("WorkExperienceIndex").max().alias("WorkExp_Idx_Max"),
+        pl.col("WorkExperienceIndex").mean().alias("WorkExp_Idx_Mean"),
+        pl.col("IsFounder").sum().alias("Total_Founders"),
+    )
+    # Line 650's NA loop: polars already returns null where R returns -Inf from
+    # max() and NaN from mean() over an all-missing group, so only the empty
+    # Institute string needs turning into a null.
+    team = team.with_columns(
+        pl.when(pl.col("Institute") == "")
+        .then(None)
+        .otherwise(pl.col("Institute"))
+        .alias("Institute")
+    )
+
+    skeleton = pl.read_parquet(cfg.interim("db_master_2_skeleton.parquet"))
+    panel = (
+        skeleton.join(
+            team.rename({"Years": "Delta"}), on=["CompanyID", "Delta"], how="full", coalesce=True
+        )
+        .sort(["CompanyID", "Delta"])
+        .with_columns(pl.col("YearFounded").fill_null(strategy="forward").over("CompanyID"))
+        .with_columns(pl.col("YearFounded").fill_null(strategy="backward").over("CompanyID"))
+        .with_columns(pl.col("Year_Delta").fill_null(pl.col("YearFounded") + pl.col("Delta")))
+        .sort(["CompanyID", "Delta"])
+    )
+    panel.write_parquet(cfg.interim("db_master_2_team.parquet"))
+
+
+COLUMN_FINALISED_AT_STAGE.update(dict.fromkeys(TEAM_COLUMNS, 2))

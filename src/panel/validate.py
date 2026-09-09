@@ -184,6 +184,7 @@ def verify(
     expected_missing: frozenset[str] | set[str] = frozenset(),
     expected_extra: frozenset[str] | set[str] = frozenset(),
     na_token: str | None = None,
+    na_collapsed_columns: frozenset[str] | set[str] = frozenset(),
     rtol: float = 1e-9,
     n_examples: int = 10,
 ) -> VerificationReport:
@@ -193,6 +194,14 @@ def verify(
     the reference has and we deliberately do not produce, `expected_extra`
     columns we add and the reference cannot have. None of the three makes the
     report pass silently: they are printed in the header either way.
+
+    `na_collapsed_columns` names string columns where the export turned a cell
+    holding the literal text "NA" into a null. `Institute` is built by R's
+    `paste()`, which renders a missing institute as that text (bug B7): the
+    reference keeps it inside longer strings ("NA; University of Oxford; ...")
+    but has no cell equal to "NA" alone, so a whole-cell "NA" here must match a
+    null there. Only that exact case is excused; every other value still has to
+    agree.
 
     `na_token` says how the reference spells a missing value. `None` means the
     file has real empty fields, which polars reads as nulls — the case for
@@ -223,6 +232,10 @@ def verify(
             dtype = pl.String
 
         if dtype == pl.String:
+            if c in na_collapsed_columns:
+                act_raw = pl.select(
+                    pl.when(pl.lit(act_raw) == "NA").then(None).otherwise(pl.lit(act_raw))
+                ).to_series()
             if na_token is None:
                 ref_v, act_v = ref_raw, act_raw
                 na_only_ref = int((ref_v.is_null() & act_v.is_not_null()).sum())
@@ -318,6 +331,7 @@ class Checkpoint:
     expected_missing: frozenset[str] = frozenset()
     expected_extra: frozenset[str] = frozenset()
     expected_diff: frozenset[str] = frozenset()
+    na_collapsed_columns: frozenset[str] = frozenset({"Institute"})
 
 
 #: The six columns fed by the RandomForest imputation of TotalInvestedCapital.
@@ -428,6 +442,7 @@ def run_checkpoint(cfg: PanelConfig, letter: str) -> VerificationReport:
         expected_missing=cp.expected_missing,
         expected_extra=cp.expected_extra,
         na_token=cp.na_token,
+        na_collapsed_columns=cp.na_collapsed_columns,
         rtol=cfg.rtol,
         n_examples=cfg.n_examples,
     )
@@ -444,6 +459,7 @@ def run_partial(cfg: PanelConfig, stage: int, actual: pl.DataFrame) -> Verificat
         key=["CompanyID", "Year_Delta"],
         name=f"verifica parziale stadio {stage}",
         expected_missing=EST_COLUMNS,
+        na_collapsed_columns=frozenset({"Institute"}),
         rtol=cfg.rtol,
         n_examples=cfg.n_examples,
     )

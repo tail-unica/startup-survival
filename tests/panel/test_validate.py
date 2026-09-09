@@ -158,3 +158,14 @@ def test_date_columns_are_compared_as_iso_text():
     assert verify(act, ref, key=["k"], name="t").passed()
     bad = _ref(k=["a", "b"], d=["2025-07-31", None])
     assert not verify(act, bad, key=["k"], name="t").passed()
+
+
+def test_na_collapsed_columns_excuse_only_a_whole_cell_na():
+    # R's paste() writes a missing institute as the text "NA"; the reference
+    # export collapsed a cell that was only that into a null, but kept it
+    # inside longer strings.
+    act = pl.DataFrame({"k": ["a", "b", "c"], "Institute": ["NA", "NA; MIT", "MIT"]})
+    ref = _ref(k=["a", "b", "c"], Institute=[None, "NA; MIT", "MIT"])
+    assert verify(act, ref, key=["k"], name="t", na_collapsed_columns={"Institute"}).passed()
+    wrong = _ref(k=["a", "b", "c"], Institute=[None, None, "MIT"])
+    assert not verify(act, wrong, key=["k"], name="t", na_collapsed_columns={"Institute"}).passed()
