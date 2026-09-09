@@ -216,6 +216,12 @@ def verify(
         ambiguous = 0
         max_abs = None
 
+        # A Date has no meaningful numeric comparison against "2025-07-30";
+        # render it the way the reference spells it and compare as text.
+        if dtype in (pl.Date, pl.Datetime):
+            act_raw = act_raw.dt.to_string("%Y-%m-%d")
+            dtype = pl.String
+
         if dtype == pl.String:
             if na_token is None:
                 ref_v, act_v = ref_raw, act_raw

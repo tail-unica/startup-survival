@@ -148,3 +148,13 @@ def test_render_lists_worst_column_first():
     ref = _ref(k=["a", "b"], few=["1.0", "5.0"], many=["1.0", "2.0"])
     text = verify(act, ref, key=["k"], name="t").render()
     assert text.index("many") < text.index("few")
+
+
+def test_date_columns_are_compared_as_iso_text():
+    import datetime as dt
+
+    act = pl.DataFrame({"k": ["a", "b"], "d": [dt.date(2025, 7, 30), None]})
+    ref = _ref(k=["a", "b"], d=["2025-07-30", None])
+    assert verify(act, ref, key=["k"], name="t").passed()
+    bad = _ref(k=["a", "b"], d=["2025-07-31", None])
+    assert not verify(act, bad, key=["k"], name="t").passed()
