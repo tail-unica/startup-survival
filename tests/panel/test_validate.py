@@ -169,3 +169,15 @@ def test_na_collapsed_columns_excuse_only_a_whole_cell_na():
     assert verify(act, ref, key=["k"], name="t", na_collapsed_columns={"Institute"}).passed()
     wrong = _ref(k=["a", "b", "c"], Institute=[None, None, "MIT"])
     assert not verify(act, wrong, key=["k"], name="t", na_collapsed_columns={"Institute"}).passed()
+
+
+def test_na_token_is_stripped_from_keys_before_aligning():
+    # An R write.csv reference spells a missing key as "NA"; left as text it
+    # makes the key column non-numeric and nothing pairs up at all.
+    act = pl.DataFrame({"k": ["c", "c"], "Year_Delta": [2013, None], "v": [1.0, 2.0]})
+    ref = _ref(k=["c", "c"], Year_Delta=["2013", "NA"], v=["1.0", "2.0"])
+    rep = verify(act, ref, key=["k", "Year_Delta"], name="t", na_token="NA")
+    assert rep.keys_only_ref == 0
+    assert rep.keys_null_ref == 1
+    assert rep.keys_null_act == 1
+    assert rep.passed()

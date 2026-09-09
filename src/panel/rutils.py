@@ -168,15 +168,20 @@ def next_different(
     time_col: str,
 ) -> pl.DataFrame:
     """First later value different from the current one, skipping nulls,
-    plus its distance in rows. Both are null when no such value exists."""
-    ordered = df.with_row_index("__i")
-    later = (
-        ordered.select([*group_cols, "__i", value_col])
-        .filter(pl.col(value_col).is_not_null())
-        .rename({"__i": "__j", value_col: "__cand"})
+    plus its distance in rows. Both are null when no such value exists.
+
+    The search is a self-join within each group, so it is quadratic in the
+    group size. It runs on a three-column projection and the two results are
+    attached back by row index: joining the whole frame instead materialises
+    every column once per candidate pair, which on the 113-column panel is
+    tens of millions of wide rows and exhausts memory.
+    """
+    slim = df.select([*group_cols, value_col]).with_row_index("__i")
+    later = slim.filter(pl.col(value_col).is_not_null()).select(
+        [*group_cols, pl.col("__i").alias("__j"), pl.col(value_col).alias("__cand")]
     )
     joined = (
-        ordered.join(later, on=group_cols, how="left")
+        slim.join(later, on=group_cols, how="left")
         .filter((pl.col("__j") > pl.col("__i")) | pl.col("__j").is_null())
         .filter(
             pl.col("__cand").is_null()
@@ -188,22 +193,24 @@ def next_different(
         joined.sort(["__i", "__j"])
         .group_by("__i", maintain_order=True)
         .agg(
-            pl.col("__cand").first().alias(stage_col),
+            pl.col("__cand").first().alias("__stage"),
             pl.col("__j").first().alias("__jj"),
         )
     )
     out = (
-        ordered.join(picked, on="__i", how="left")
-        .with_columns((pl.col("__jj") - pl.col("__i")).cast(pl.Int64).alias(time_col))
-        .drop("__i", "__jj")
+        slim.join(picked, on="__i", how="left")
+        .with_columns((pl.col("__jj") - pl.col("__i")).cast(pl.Int64).alias("__time"))
+        .sort("__i")
     )
     # A current stage that is itself null has no "next different" in R either.
-    return out.with_columns(
-        pl.when(pl.col(value_col).is_null())
-        .then(None)
-        .otherwise(pl.col(stage_col))
-        .alias(stage_col),
-        pl.when(pl.col(value_col).is_null()).then(None).otherwise(pl.col(time_col)).alias(time_col),
+    own_null = pl.col(value_col).is_null()
+    out = out.with_columns(
+        pl.when(own_null).then(None).otherwise(pl.col("__stage")).alias("__stage"),
+        pl.when(own_null).then(None).otherwise(pl.col("__time")).alias("__time"),
+    )
+    return df.with_columns(
+        out.get_column("__stage").alias(stage_col),
+        out.get_column("__time").alias(time_col),
     )
 
 

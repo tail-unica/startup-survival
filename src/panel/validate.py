@@ -210,6 +210,13 @@ def verify(
     same six bytes and cannot be told apart; only `db_master_panel.csv.gz` is
     written that way, and there the ambiguous cells are counted and reported.
     """
+    if na_token is not None:
+        # In an R write.csv reference a missing key is the token, not an empty
+        # field; left as text it defeats the numeric-key normalisation below
+        # and every single row looks unpaired.
+        reference = reference.with_columns(
+            pl.when(pl.col(k) == na_token).then(None).otherwise(pl.col(k)).alias(k) for k in key
+        )
     a, r, only_ref, only_act, null_ref, null_act = _align(actual, reference, key)
     kcols = [f"__k{i}" for i in range(len(key))]
     keyvals = a.select(kcols).to_dicts()
