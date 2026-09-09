@@ -89,8 +89,10 @@ demonstrate and re-run the upstream feature-engineering pipeline.
 │       └── dataset_nowindow.csv  # Final look-ahead-biased dataset (released)
 ├── docs/                         # Design specs and implementation plans
 ├── scripts/
+│   ├── build_panel.py            # Builds the panel from the raw PitchBook CSVs
 │   ├── build_datasets.py         # Rebuilds the two processed datasets from the panel
-│   └── check_extraction.py       # Checks a candidate extraction against the reference
+│   ├── check_extraction.py       # Checks a candidate extraction against the reference
+│   └── derive_europe_mapping.py  # Recovers the country->continent verdict the R used
 ├── src/
 │   ├── preprocessing.py          # Feature & target engineering, time window, imputation
 │   ├── encoding.py               # Frequency encoding, fitted per split (no leakage)
@@ -102,6 +104,11 @@ demonstrate and re-run the upstream feature-engineering pipeline.
 │   │   ├── mlp.py                # The network and its training loop
 │   │   └── tabpfn.py             # TabPFN v2, run locally
 │   ├── panel/                    # Panel construction pipeline, ported from R
+│   │   ├── config.py             # Paths and the bug flags, all defaulting to R behaviour
+│   │   ├── rutils.py             # R/dplyr semantics that polars does not share
+│   │   ├── io.py                 # Schema-explicit readers, row-count guards
+│   │   ├── validate.py           # Per-column verification against the R intermediates
+│   │   └── stage1..stage7_*.py   # The seven stages, one parquet each
 │   └── RCode/                    # Original R scripts, kept for reference (not released)
 ├── tests/                        # pytest suite for src/
 ├── notebook.ipynb                # Main reproducible pipeline (end to end)
@@ -111,10 +118,72 @@ demonstrate and re-run the upstream feature-engineering pipeline.
 └── README.md
 ```
 
-The panel construction step is being ported from R to Python under `src/panel/`.
-Until it lands, `src/RCode/` holds the original scripts it is translated from
-and `data/reference/` the intermediates their output is checked against; neither
-is redistributable, so both are absent from a fresh clone.
+`src/RCode/` holds the original R scripts the pipeline was translated from and
+`data/reference/` the intermediates its output is checked against; neither is
+redistributable, so both are absent from a fresh clone.
+
+## Panel construction
+
+`scripts/build_panel.py` rebuilds `data/interim/panel.csv.gz` from the raw
+PitchBook extraction. It is a faithful port of the two R scripts that used to
+produce the panel, plus the two post-processing steps that followed them.
+
+```bash
+uv run python scripts/check_extraction.py data/raw/pitchbook   # right vintage?
+uv run python scripts/build_panel.py --verify                  # ~8 minutes
+uv run python scripts/build_panel.py --from 4                  # resume at a stage
+```
+
+Seven stages, each reading the previous one's parquet from `data/interim/` and
+writing its own, so re-running one does not force the others. Each stage runs in
+its own interpreter: end to end in a single process the pipeline peaks past this
+machine's memory.
+
+Nothing writes to `data/raw/` or `data/reference/`. The finished panel lands in
+`data/interim/panel.csv.gz`; `data/raw/panel.csv.gz` is the reference it is
+compared against and stays untouched.
+
+### Verification
+
+`--verify` checks each stage against the file the R produced, column by column,
+aligned by key. `uv run python -m src.panel.validate --checkpoint C` runs one on
+its own.
+
+| checkpoint | stage | reference | rows | result |
+|---|---|---|---|---|
+| A | 2 | `db3.csv` | 534,851 | 52/52 columns identical |
+| B | 3 | `db_master_1.csv` | 116,920 | 34/34 identical |
+| C | 5 | `db_master_2.csv` | 1,001,625 | 107/107 identical |
+| D | 5 | `db_selected.csv` | 1,001,625 | 89/89 identical |
+| E | 6 | `db_master_panel.csv.gz` | 882,324 | 112/113 identical |
+| F | 7 | `data/raw/panel.csv.gz` | 882,324 | 107/114 identical |
+
+Three groups of columns are declared rather than reproduced, and every run
+prints them:
+
+- **The six `TotalRaised_Est*` columns are not produced.** The R filled missing
+  deal amounts with a `randomForest` fitted with no seed, across all years, on
+  the whole dataset before any split, using the deal type — which determines the
+  target — as a predictor. `src/panel/stage4_deals.py` carries a comment at the
+  exact line naming the seven columns it created; missing amounts are now left
+  missing for the imputation that already runs before training.
+- **`StageBlock` at E and F.** Its value in those files matches neither a
+  recomputation on `GrowthStage` nor one on the grouped stage nor
+  `db_selected`'s own. Nothing downstream reads it.
+- **The six competitor columns at F.** They were computed from a different
+  download of `CompanySimilarRelation.csv`: checkpoint B reproduces every
+  competitor aggregate in `db_master_1.csv` exactly from the extraction we have,
+  yet 655,869 rows over 84,138 companies carry the same competitor count as the
+  published panel and a different mean similarity, in both directions.
+
+### Reproducing the R's defects
+
+The R has ten known defects. All are reproduced by default, each behind a
+`fix_*` flag in `PanelConfig` that defaults to `False`, where `False` means "do
+what the R did". `docs/superpowers/specs/` holds the register with the measured
+impact of each. The largest is B1: the team panel and the deal table cut at
+`YearFounded > 2000` while the rest of the pipeline cuts at `> 1999`, so the
+entire 2000 founding cohort reaches the models with no team data at all.
 
 ## Installation
 

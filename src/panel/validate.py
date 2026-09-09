@@ -511,14 +511,16 @@ def run_partial(cfg: PanelConfig, stage: int, actual: pl.DataFrame) -> Verificat
     return report
 
 
-def _main() -> None:
+def _main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description="Verifica un checkpoint del panel.")
     parser.add_argument("--checkpoint", required=True, choices=sorted(CHECKPOINTS))
     args = parser.parse_args()
-    print(run_checkpoint(PanelConfig(), args.checkpoint).render())
+    report = run_checkpoint(PanelConfig(), args.checkpoint)
+    print(report.render())
+    return 0 if report.passed() else 1
 
 
 if __name__ == "__main__":
-    _main()
+    raise SystemExit(_main())
