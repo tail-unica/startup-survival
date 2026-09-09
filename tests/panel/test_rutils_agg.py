@@ -109,3 +109,11 @@ def test_coalesce_first_last_and_tail_na_omit():
     # coalesce(first, last) ignores the middle row -> "last"
     assert out["cfl"].to_list() == ["last"]
     assert out["tail"].to_list() == ["last"]
+
+
+def test_r_if_else_returns_null_when_the_condition_is_null():
+    from src.panel.rutils import r_if_else
+
+    df = pl.DataFrame({"c": [True, False, None], "a": [1, 1, 1], "b": [2, 2, 2]})
+    out = df.select(r_if_else(pl.col("c"), pl.col("a"), pl.col("b")).alias("r"))
+    assert out["r"].to_list() == [1, 2, None]

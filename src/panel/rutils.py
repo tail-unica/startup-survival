@@ -230,3 +230,19 @@ def coalesce_first_last(name: str) -> pl.Expr:
 def tail_na_omit(name: str) -> pl.Expr:
     """``tail(na.omit(x), 1)`` — last non-null in row order."""
     return pl.col(name).drop_nulls().last()
+
+
+def r_if_else(cond: pl.Expr, then, otherwise) -> pl.Expr:
+    """``dplyr::if_else``, which returns NA when the condition itself is NA.
+
+    ``pl.when`` treats a null predicate as false and takes the else branch;
+    R does not, and the difference is not cosmetic. At
+    `1_Arrange_DB.R:452` the condition is
+    ``is.na(StartDate) | year(StartDate) < YearFounded``: for a company with
+    no YearFounded the comparison is NA, so R **erases** a perfectly good
+    StartDate. That is 5,357 rows of db3.
+
+    ``case_when`` needs no such helper: there an NA condition simply fails to
+    match and the row falls through, which is what ``pl.when`` already does.
+    """
+    return pl.when(cond.is_null()).then(None).when(cond).then(then).otherwise(otherwise)
