@@ -1,211 +1,211 @@
-country,is_europe
-Afghanistan,false
-Albania,true
-Algeria,false
-American Samoa,false
-Andorra,true
-Angola,false
-Anguilla,false
-Antigua,false
-Argentina,false
-Armenia,false
-Aruba,false
-Australia,false
-Austria,true
-Azerbaijan,false
-Bahamas,false
-Bahrain,false
-Bangladesh,false
-Barbados,false
-Belarus,true
-Belgium,true
-Belize,false
-Benin,false
-Bermuda,false
-Bhutan,false
-Bolivia,false
-"Bonaire, Sint Eustatius and Saba",false
-Bosnia and Herzegovina,true
-Botswana,false
-Brazil,false
-British Indian Ocean Territory,false
-British Virgin Islands,false
-Brunei,false
-Bulgaria,true
-Burkina Faso,false
-Burundi,false
-Cambodia,false
-Cameroon,false
-Canada,false
-Cape Verde,false
-Cayman Islands,false
-Central African Republic,false
-Chad,false
-Chile,false
-China,false
-Colombia,false
-Comoros,false
-Congo,false
-Cook Islands,false
-Costa Rica,false
-Croatia,true
-Cuba,false
-Curacao,false
-Cyprus,false
-Czech Republic,true
-Denmark,true
-Djibouti,false
-Dominica,false
-Dominican Republic,false
-East Timor,false
-Ecuador,false
-Egypt,false
-El Salvador,false
-Estonia,true
-Ethiopia,false
-Falkland Islands,false
-Faroe Islands,true
-Fiji,false
-Finland,true
-France,true
-Gabon,false
-Gaza Strip,false
-Georgia,false
-Germany,true
-Ghana,false
-Gibraltar,true
-Greece,true
-Greenland,false
-Grenada,false
-Guatemala,false
-Guinea,false
-Guinea-Bissau,false
-Guyana,false
-Haiti,false
-Honduras,false
-Hong Kong,false
-Hungary,true
-Iceland,true
-India,false
-Indonesia,false
-Iran,false
-Iraq,false
-Ireland,true
-Israel,false
-Italy,true
-Ivory Coast,false
-Jamaica,false
-Japan,false
-Jordan,false
-Kazakhstan,false
-Kenya,false
-Kosovo,false
-Kuwait,false
-Kyrgyzstan,false
-Laos,false
-Latvia,true
-Lebanon,false
-Lesotho,false
-Liberia,false
-Libya,false
-Liechtenstein,true
-Lithuania,true
-Luxembourg,true
-Macau,false
-Madagascar,false
-Malawi,false
-Malaysia,false
-Maldives,false
-Mali,false
-Malta,true
-Marshall Islands,false
-Mauritania,false
-Mauritius,false
-Mayotte,false
-Mexico,false
-Micronesia,false
-Moldova,true
-Monaco,true
-Mongolia,false
-Montenegro,true
-Morocco,false
-Mozambique,false
-Myanmar,false
-Namibia,false
-Nepal,false
-Netherlands,true
-New Caledonia,false
-New Zealand,false
-Nicaragua,false
-Niger,false
-Nigeria,false
-North Macedonia,true
-Northern Mariana Islands,false
-Norway,true
-Oman,false
-Pakistan,false
-Palestine,false
-Panama,false
-Papua New Guinea,false
-Paraguay,false
-Peru,false
-Philippines,false
-Poland,true
-Polynesia,false
-Portugal,true
-Qatar,false
-Reunion,false
-Romania,true
-Russia,true
-Rwanda,false
-Saint Kitts and Nevis,false
-Saint Lucia,false
-Saint Vincent,false
-Samoa,false
-San Marino,true
-Saudi Arabia,false
-Senegal,false
-Serbia,true
-Seychelles,false
-Sierra Leone,false
-Singapore,false
-Sint Maarten,false
-Slovakia,true
-Slovenia,true
-Solomon Islands,false
-Somalia,false
-South Africa,false
-South Korea,false
-Spain,true
-Sri Lanka,false
-Sudan,false
-Suriname,false
-Swaziland,false
-Sweden,true
-Switzerland,true
-Syria,false
-Taiwan,false
-Tajikistan,false
-Tanzania,false
-Thailand,false
-The Gambia,false
-Togo,false
-Trinidad and Tobago,false
-Tunisia,false
-Turkey,false
-Turkmenistan,false
-Uganda,false
-Ukraine,true
-United Arab Emirates,false
-United Kingdom,true
-United States,false
-Uruguay,false
-Uzbekistan,false
-Vanuatu,false
-Venezuela,false
-Vietnam,false
-West Bank,false
-Western Sahara,false
-Yemen,false
-Zambia,false
-Zimbabwe,false
+country,continent_class
+Afghanistan,other
+Albania,europe
+Algeria,other
+American Samoa,other
+Andorra,europe
+Angola,other
+Anguilla,other
+Antigua,other
+Argentina,other
+Armenia,other
+Aruba,other
+Australia,other
+Austria,europe
+Azerbaijan,other
+Bahamas,other
+Bahrain,other
+Bangladesh,other
+Barbados,other
+Belarus,europe
+Belgium,europe
+Belize,other
+Benin,other
+Bermuda,other
+Bhutan,other
+Bolivia,other
+"Bonaire, Sint Eustatius and Saba",other
+Bosnia and Herzegovina,europe
+Botswana,other
+Brazil,other
+British Indian Ocean Territory,unknown
+British Virgin Islands,other
+Brunei,other
+Bulgaria,europe
+Burkina Faso,other
+Burundi,other
+Cambodia,other
+Cameroon,other
+Canada,other
+Cape Verde,other
+Cayman Islands,other
+Central African Republic,other
+Chad,other
+Chile,other
+China,other
+Colombia,other
+Comoros,other
+Congo,other
+Cook Islands,other
+Costa Rica,other
+Croatia,europe
+Cuba,other
+Curacao,other
+Cyprus,other
+Czech Republic,europe
+Denmark,europe
+Djibouti,other
+Dominica,other
+Dominican Republic,other
+East Timor,other
+Ecuador,other
+Egypt,other
+El Salvador,other
+Estonia,europe
+Ethiopia,other
+Falkland Islands,other
+Faroe Islands,europe
+Fiji,other
+Finland,europe
+France,europe
+Gabon,other
+Gaza Strip,other
+Georgia,other
+Germany,europe
+Ghana,other
+Gibraltar,europe
+Greece,europe
+Greenland,other
+Grenada,other
+Guatemala,other
+Guinea,other
+Guinea-Bissau,other
+Guyana,other
+Haiti,other
+Honduras,other
+Hong Kong,other
+Hungary,europe
+Iceland,europe
+India,other
+Indonesia,other
+Iran,other
+Iraq,other
+Ireland,europe
+Israel,other
+Italy,europe
+Ivory Coast,other
+Jamaica,other
+Japan,other
+Jordan,other
+Kazakhstan,other
+Kenya,other
+Kosovo,unknown
+Kuwait,other
+Kyrgyzstan,other
+Laos,other
+Latvia,europe
+Lebanon,other
+Lesotho,other
+Liberia,other
+Libya,other
+Liechtenstein,europe
+Lithuania,europe
+Luxembourg,europe
+Macau,other
+Madagascar,other
+Malawi,other
+Malaysia,other
+Maldives,other
+Mali,other
+Malta,europe
+Marshall Islands,other
+Mauritania,other
+Mauritius,other
+Mayotte,other
+Mexico,other
+Micronesia,unknown
+Moldova,europe
+Monaco,europe
+Mongolia,other
+Montenegro,europe
+Morocco,other
+Mozambique,other
+Myanmar,other
+Namibia,other
+Nepal,other
+Netherlands,europe
+New Caledonia,other
+New Zealand,other
+Nicaragua,other
+Niger,other
+Nigeria,other
+North Macedonia,europe
+Northern Mariana Islands,other
+Norway,europe
+Oman,other
+Pakistan,other
+Palestine,other
+Panama,other
+Papua New Guinea,other
+Paraguay,other
+Peru,other
+Philippines,other
+Poland,europe
+Polynesia,unknown
+Portugal,europe
+Qatar,other
+Reunion,other
+Romania,europe
+Russia,europe
+Rwanda,other
+Saint Kitts and Nevis,other
+Saint Lucia,other
+Saint Vincent,other
+Samoa,other
+San Marino,europe
+Saudi Arabia,other
+Senegal,other
+Serbia,europe
+Seychelles,other
+Sierra Leone,other
+Singapore,other
+Sint Maarten,other
+Slovakia,europe
+Slovenia,europe
+Solomon Islands,other
+Somalia,other
+South Africa,other
+South Korea,other
+Spain,europe
+Sri Lanka,other
+Sudan,other
+Suriname,other
+Swaziland,other
+Sweden,europe
+Switzerland,europe
+Syria,other
+Taiwan,other
+Tajikistan,other
+Tanzania,other
+Thailand,other
+The Gambia,other
+Togo,other
+Trinidad and Tobago,other
+Tunisia,other
+Turkey,other
+Turkmenistan,other
+Uganda,other
+Ukraine,europe
+United Arab Emirates,other
+United Kingdom,europe
+United States,other
+Uruguay,other
+Uzbekistan,other
+Vanuatu,other
+Venezuela,other
+Vietnam,other
+West Bank,other
+Western Sahara,other
+Yemen,other
+Zambia,other
+Zimbabwe,other

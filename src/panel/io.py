@@ -71,12 +71,21 @@ def to_int(name: str) -> pl.Expr:
     return pl.col(name).cast(pl.Int64, strict=False).alias(name)
 
 
-def load_europe() -> dict[str, bool]:
-    """Frozen country -> is-Europe mapping, recovered from the R run.
+#: Three classes, because `SimilarCompanyIsEurope` is three-valued in R:
+#: countrycode returns NA for a name it cannot place, and NA is not the same as
+#: FALSE downstream — `N_Europe` counts neither, `N_Outside_Europe` counts only
+#: FALSE. Four names land here: Kosovo, Polynesia, Micronesia and British
+#: Indian Ocean Territory.
+_CONTINENT_CLASS = {"europe": True, "other": False, "unknown": None}
 
-    Derived once by scripts/derive_europe_mapping.py so that the panel never
+
+def load_europe() -> dict[str, bool | None]:
+    """Frozen country -> is-Europe verdict, recovered from the R run.
+
+    True is Europe, False is elsewhere, None is "countrycode could not place
+    it". Derived once by scripts/derive_europe_mapping.py so the panel never
     depends on a third-party classification that could change between releases.
     """
     path = Path(__file__).parent / "data" / "europe.csv"
     df = pl.read_csv(path, infer_schema_length=0)
-    return {r["country"]: r["is_europe"] == "true" for r in df.to_dicts()}
+    return {r["country"]: _CONTINENT_CLASS[r["continent_class"]] for r in df.to_dicts()}
