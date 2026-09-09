@@ -12,6 +12,8 @@ from pathlib import Path
 
 import polars as pl
 
+from src.panel.config import PanelConfig
+
 _BOOL_TOKENS = {
     "TRUE": True,
     "T": True,
@@ -47,6 +49,9 @@ class VerificationReport:
     n_rows_act: int
     keys_only_ref: int
     keys_only_act: int
+    #: Rows dropped because the key itself is null, and so unalignable.
+    keys_null_ref: int
+    keys_null_act: int
     cols_only_ref: list[str]
     cols_only_act: list[str]
     columns: list[ColumnDiff]
@@ -69,6 +74,7 @@ class VerificationReport:
             self.n_diff_columns() == 0
             and self.keys_only_ref == 0
             and self.keys_only_act == 0
+            and self.keys_null_ref == self.keys_null_act
             and not set(self.cols_only_ref) - set(self.expected_missing)
             and not set(self.cols_only_act) - set(self.expected_extra)
         )
@@ -93,7 +99,8 @@ class VerificationReport:
         out = [
             f"=== {self.name}: {'PASS' if self.passed() else 'FAIL'} ===",
             f"righe   riferimento={self.n_rows_ref:,}  ottenute={self.n_rows_act:,}",
-            f"chiavi  solo R={self.keys_only_ref:,}  solo PY={self.keys_only_act:,}",
+            f"chiavi  solo R={self.keys_only_ref:,}  solo PY={self.keys_only_act:,}"
+            f"  nulle R={self.keys_null_ref:,} PY={self.keys_null_act:,}",
             f"colonne solo R={unexpected_ref}  solo PY={unexpected_act}",
             f"colonne assenti attese={sorted(self.expected_missing)}  "
             f"in piu' attese={sorted(self.expected_extra)}",
@@ -125,24 +132,46 @@ class VerificationReport:
         return "\n".join(out)
 
 
+def _norm_key(df: pl.DataFrame, col: str, alias: str) -> pl.Expr:
+    """Normalise one key column so both sides join on the same representation.
+
+    The reference CSVs were exported with a float dtype for `Year_Delta`, so a
+    key reads `"2013.0"` there and `2013` here; comparing the two as text
+    matches nothing and every row looks unpaired. Numeric-looking keys are
+    therefore normalised through Float64 and back. `CompanyID` ("100020-70")
+    and `PersonID` ("58322-80P") do not cast and stay text.
+    """
+    s = df.get_column(col)
+    as_float = s.cast(pl.Float64, strict=False)
+    if as_float.null_count() == s.null_count():
+        return pl.col(col).cast(pl.Float64, strict=False).cast(pl.String).alias(alias)
+    return pl.col(col).cast(pl.String).alias(alias)
+
+
 def _align(actual: pl.DataFrame, reference: pl.DataFrame, key: list[str]):
-    """Restrict both frames to the shared keys and sort them identically."""
+    """Restrict both frames to the shared keys and sort them identically.
+
+    Rows whose key is itself null cannot be aligned with anything; they are
+    dropped and counted separately, because they are a property of the data,
+    not a difference between the two sides.
+    """
     for name, df in (("actual", actual), ("reference", reference)):
         if df.select(key).is_duplicated().any():
             raise ValueError(f"duplicate keys in {name} on {key}")
     kcols = [f"__k{i}" for i in range(len(key))]
-    a = actual.with_columns(
-        pl.col(k).cast(pl.String).alias(kc) for k, kc in zip(key, kcols, strict=True)
-    )
+    a = actual.with_columns([_norm_key(actual, k, kc) for k, kc in zip(key, kcols, strict=True)])
     r = reference.with_columns(
-        pl.col(k).cast(pl.String).alias(kc) for k, kc in zip(key, kcols, strict=True)
+        [_norm_key(reference, k, kc) for k, kc in zip(key, kcols, strict=True)]
     )
+    has_key = pl.all_horizontal([pl.col(kc).is_not_null() for kc in kcols])
+    null_act, null_ref = a.filter(~has_key).height, r.filter(~has_key).height
+    a, r = a.filter(has_key), r.filter(has_key)
     only_ref = r.select(kcols).join(a.select(kcols), on=kcols, how="anti").height
     only_act = a.select(kcols).join(r.select(kcols), on=kcols, how="anti").height
     shared = r.select(kcols).join(a.select(kcols), on=kcols, how="semi")
     a = a.join(shared, on=kcols, how="semi").sort(kcols)
     r = r.join(shared, on=kcols, how="semi").sort(kcols)
-    return a, r, only_ref, only_act
+    return a, r, only_ref, only_act, null_ref, null_act
 
 
 def verify(
@@ -154,17 +183,25 @@ def verify(
     expected_diff: frozenset[str] | set[str] = frozenset(),
     expected_missing: frozenset[str] | set[str] = frozenset(),
     expected_extra: frozenset[str] | set[str] = frozenset(),
+    na_token: str | None = None,
     rtol: float = 1e-9,
     n_examples: int = 10,
 ) -> VerificationReport:
-    """Compare `actual` against the R `reference` (all-String) on `key`.
+    """Compare `actual` against the all-String `reference` on `key`.
 
     `expected_diff` names columns allowed to differ, `expected_missing` columns
     the reference has and we deliberately do not produce, `expected_extra`
     columns we add and the reference cannot have. None of the three makes the
     report pass silently: they are printed in the header either way.
+
+    `na_token` says how the reference spells a missing value. `None` means the
+    file has real empty fields, which polars reads as nulls — the case for
+    db3, db_master_1, db_master_2, db_selected and panel.csv.gz. `"NA"` means
+    R's `write.csv`, where a missing value and the literal string "NA" are the
+    same six bytes and cannot be told apart; only `db_master_panel.csv.gz` is
+    written that way, and there the ambiguous cells are counted and reported.
     """
-    a, r, only_ref, only_act = _align(actual, reference, key)
+    a, r, only_ref, only_act, null_ref, null_act = _align(actual, reference, key)
     kcols = [f"__k{i}" for i in range(len(key))]
     keyvals = a.select(kcols).to_dicts()
 
@@ -180,13 +217,19 @@ def verify(
         max_abs = None
 
         if dtype == pl.String:
-            # Compare in R-serialized form: null <-> the token "NA".
-            ref_v = ref_raw.fill_null("NA")
-            act_v = act_raw.fill_null("NA")
-            ambiguous = int((ref_v == "NA").sum())
-            is_diff = ref_v != act_v
-            na_only_ref = 0
-            na_only_act = 0
+            if na_token is None:
+                ref_v, act_v = ref_raw, act_raw
+                na_only_ref = int((ref_v.is_null() & act_v.is_not_null()).sum())
+                na_only_act = int((act_v.is_null() & ref_v.is_not_null()).sum())
+                is_diff = ref_v.ne_missing(act_v)
+            else:
+                # R's write.csv: null and the literal string are the same text.
+                ref_v = ref_raw.fill_null(na_token)
+                act_v = act_raw.fill_null(na_token)
+                ambiguous = int((ref_v == na_token).sum())
+                is_diff = ref_v.ne_missing(act_v)
+                na_only_ref = 0
+                na_only_act = 0
         elif dtype == pl.Boolean:
             ref_v = ref_raw.replace_strict(_BOOL_TOKENS, default=None, return_dtype=pl.Boolean)
             act_v = act_raw
@@ -242,9 +285,183 @@ def verify(
         n_rows_act=actual.height,
         keys_only_ref=only_ref,
         keys_only_act=only_act,
+        keys_null_ref=null_ref,
+        keys_null_act=null_act,
         cols_only_ref=[c for c in reference.columns if c not in actual.columns],
         cols_only_act=[c for c in actual.columns if c not in reference.columns],
         columns=diffs,
         expected_missing=sorted(expected_missing),
         expected_extra=sorted(expected_extra),
     )
+
+
+@dataclass(frozen=True)
+class Checkpoint:
+    """One stage output and the exported file it must reproduce."""
+
+    name: str
+    stage: int
+    interim: str
+    reference: str
+    key: list[str]
+    expect_rows: int
+    #: True when the reference lives under the repo root rather than ref_dir.
+    reference_at_root: bool = False
+    #: How the file spells a missing value; see `verify`.
+    na_token: str | None = None
+    expected_missing: frozenset[str] = frozenset()
+    expected_extra: frozenset[str] = frozenset()
+    expected_diff: frozenset[str] = frozenset()
+
+
+#: The six columns fed by the RandomForest imputation of TotalInvestedCapital.
+#: They exist in every reference from db_master_2 onwards and are deliberately
+#: not produced here — see the amendment in the design spec.
+EST_COLUMNS: frozenset[str] = frozenset(
+    {
+        "TotalRaised_Est",
+        "TotalRaised_Est_NA",
+        "TotalRaised_Est_any",
+        "TotalRaised_Est_cum",
+        "TotalRaised_Est_any_cum",
+        "TotalRaised_Est_NA_cum",
+    }
+)
+
+#: Computed by the R at 1_Arrange_DB.R:1246 and then dropped by vars_selected.
+#: We keep it, so from db_selected onwards it is a column the references lack.
+KEPT_EXTRA: frozenset[str] = frozenset({"TR_D"})
+
+CHECKPOINTS: dict[str, Checkpoint] = {
+    "A": Checkpoint("A", 2, "db3.parquet", "db3.csv", ["CompanyID", "PersonID"], 534_851),
+    "B": Checkpoint("B", 3, "db_master_1.parquet", "db_master_1.csv", ["CompanyID"], 116_920),
+    "C": Checkpoint(
+        "C",
+        5,
+        "db_master_2.parquet",
+        "db_master_2.csv",
+        ["CompanyID", "Year_Delta"],
+        1_001_625,
+        expected_missing=EST_COLUMNS,
+    ),
+    "D": Checkpoint(
+        "D",
+        5,
+        "db_selected.parquet",
+        "db_selected.csv",
+        ["CompanyID", "Year_Delta"],
+        1_001_625,
+        expected_missing=EST_COLUMNS,
+        expected_extra=KEPT_EXTRA,
+    ),
+    "E": Checkpoint(
+        "E",
+        6,
+        "db_master_panel.parquet",
+        "db_master_panel.csv.gz",
+        ["CompanyID", "Year_Delta"],
+        882_324,
+        na_token="NA",  # the only reference written by R's write.csv
+        expected_missing=EST_COLUMNS,
+        expected_extra=KEPT_EXTRA,
+        expected_diff=frozenset({"StageBlock"}),
+    ),
+    "F": Checkpoint(
+        "F",
+        7,
+        "panel.parquet",
+        "data/raw/panel.csv.gz",
+        ["CompanyID", "Year_Delta"],
+        882_324,
+        reference_at_root=True,
+        expected_missing=EST_COLUMNS,
+        expected_extra=KEPT_EXTRA,
+        expected_diff=frozenset({"StageBlock"}),
+    ),
+}
+
+#: Stage after which each db_master_2 column stops changing. Each stage task
+#: appends its own columns; see the plan's stage tasks.
+COLUMN_FINALISED_AT_STAGE: dict[str, int] = {}
+
+
+def load_reference(cfg: PanelConfig, filename: str, *, at_root: bool = False) -> pl.DataFrame:
+    """Read an exported reference CSV as pure text.
+
+    `null_values=[]` keeps the literal token `NA` visible, which matters only
+    for `db_master_panel.csv.gz`; empty fields still read as nulls, which is
+    how every other reference spells a missing value.
+    """
+    path = Path(filename) if at_root else cfg.reference(filename)
+    return pl.read_csv(path, infer_schema_length=0, null_values=[], quote_char='"')
+
+
+def classify_partial(
+    stage: int,
+    diff_columns: set[str],
+    all_columns: set[str],
+    finalised: dict[str, int],
+) -> tuple[set[str], set[str], set[str]]:
+    """Split columns into (verified, expected-to-differ, regressions)."""
+    regressions = {c for c in diff_columns if finalised.get(c, stage + 1) <= stage}
+    expected = diff_columns - regressions
+    verified = all_columns - diff_columns
+    return verified, expected, regressions
+
+
+def run_checkpoint(cfg: PanelConfig, letter: str) -> VerificationReport:
+    cp = CHECKPOINTS[letter]
+    actual = pl.read_parquet(cfg.interim(cp.interim))
+    reference = load_reference(cfg, cp.reference, at_root=cp.reference_at_root)
+    report = verify(
+        actual,
+        reference,
+        key=cp.key,
+        name=f"checkpoint {letter} ({cp.reference})",
+        expected_diff=cp.expected_diff,
+        expected_missing=cp.expected_missing,
+        expected_extra=cp.expected_extra,
+        na_token=cp.na_token,
+        rtol=cfg.rtol,
+        n_examples=cfg.n_examples,
+    )
+    report.to_json(cfg.interim_dir / "reports" / f"checkpoint_{letter}.json")
+    return report
+
+
+def run_partial(cfg: PanelConfig, stage: int, actual: pl.DataFrame) -> VerificationReport:
+    """Compare an intermediate db_master_2 against the final reference."""
+    reference = load_reference(cfg, "db_master_2.csv")
+    report = verify(
+        actual,
+        reference,
+        key=["CompanyID", "Year_Delta"],
+        name=f"verifica parziale stadio {stage}",
+        expected_missing=EST_COLUMNS,
+        rtol=cfg.rtol,
+        n_examples=cfg.n_examples,
+    )
+    diff_cols = {c.column for c in report.columns if c.n_diff}
+    all_cols = {c.column for c in report.columns}
+    _, expected, regressions = classify_partial(
+        stage, diff_cols, all_cols, COLUMN_FINALISED_AT_STAGE
+    )
+    for c in report.columns:
+        c.expected = c.column in expected
+    report.to_json(cfg.interim_dir / "reports" / f"partial_stage{stage}.json")
+    if regressions:
+        print(f"REGRESSIONI allo stadio {stage}: {sorted(regressions)}")
+    return report
+
+
+def _main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Verifica un checkpoint del panel.")
+    parser.add_argument("--checkpoint", required=True, choices=sorted(CHECKPOINTS))
+    args = parser.parse_args()
+    print(run_checkpoint(PanelConfig(), args.checkpoint).render())
+
+
+if __name__ == "__main__":
+    _main()

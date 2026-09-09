@@ -5,7 +5,7 @@ from src.panel.validate import verify
 
 
 def _ref(**cols) -> pl.DataFrame:
-    """Reference frames arrive all-String, exactly as read from R's write.csv."""
+    """Reference frames arrive all-String, as read from the exported CSVs."""
     return pl.DataFrame(cols)
 
 
@@ -46,13 +46,42 @@ def test_na_mismatches_are_counted_separately_from_value_mismatches():
 
 
 def test_string_nulls_are_compared_in_r_serialized_form():
-    # A null on our side and the token NA in the reference must match, because
-    # write.csv cannot distinguish them.
+    # Only db_master_panel.csv.gz is written by R's write.csv: there a null and
+    # the literal string "NA" are the same six bytes and must both match a null
+    # on our side. Opt in with na_token.
     act = pl.DataFrame({"k": ["a", "b"], "s": [None, "MIT"]})
     ref = _ref(k=["a", "b"], s=["NA", "MIT"])
-    rep = verify(act, ref, key=["k"], name="t")
+    rep = verify(act, ref, key=["k"], name="t", na_token="NA")
     assert rep.passed()
     assert rep.column("s").n_ambiguous_na == 1
+
+
+def test_string_nulls_match_real_nulls_by_default():
+    # Every other reference has empty fields, which polars reads as nulls.
+    act = pl.DataFrame({"k": ["a", "b"], "s": [None, "MIT"]})
+    assert verify(act, _ref(k=["a", "b"], s=[None, "MIT"]), key=["k"], name="t").passed()
+    rep = verify(act, _ref(k=["a", "b"], s=["MIT", "MIT"]), key=["k"], name="t")
+    assert rep.column("s").n_na_only_act == 1
+    assert not rep.passed()
+
+
+def test_float_formatted_keys_align_with_integer_keys():
+    # db_selected.csv writes Year_Delta as "2013.0"; ours is the integer 2013.
+    act = pl.DataFrame({"CompanyID": ["c"], "Year_Delta": [2013], "v": [1.0]})
+    ref = _ref(CompanyID=["c"], Year_Delta=["2013.0"], v=["1.0"])
+    rep = verify(act, ref, key=["CompanyID", "Year_Delta"], name="t")
+    assert rep.keys_only_ref == 0
+    assert rep.passed()
+
+
+def test_null_keys_are_excluded_and_counted_not_treated_as_a_difference():
+    act = pl.DataFrame({"k": ["a", None], "v": [1.0, 2.0]})
+    ref = _ref(k=["a", None], v=["1.0", "2.0"])
+    rep = verify(act, ref, key=["k"], name="t")
+    assert rep.keys_null_ref == 1
+    assert rep.keys_null_act == 1
+    assert rep.column("v").n_compared == 1
+    assert rep.passed()
 
 
 def test_boolean_columns_are_parsed_not_string_compared():

@@ -86,6 +86,35 @@ of this plan.
 `test_four_checkpoints_are_registered_with_the_expected_shapes` test becomes
 `test_six_checkpoints...`.
 
+### A5 — the references are not all serialized the same way
+
+Measured, not assumed. The plan's Task 4 assumed every reference came from R's
+`write.csv`; only one did.
+
+| reference | missing value | booleans | written by |
+|---|---|---|---|
+| `db3.csv`, `db_master_1.csv`, `db_master_2.csv`, `db_selected.csv` | empty field → real null | `True`/`False` | Python export |
+| `db_master_panel.csv.gz` | the token `NA` | `TRUE`/`FALSE` | R `write.csv` |
+| `data/raw/panel.csv.gz` | empty field → real null | `true`/`false` | polars |
+
+Consequences, all implemented in Task 4/5:
+
+- `verify` takes `na_token: str | None`. `None` (the default) means the
+  reference has real nulls and they compare null-to-null. `"NA"` is the R case,
+  where a missing value and the literal string are the same six bytes; only
+  checkpoint E passes it, and only there is `n_ambiguous_na` meaningful. **The
+  spec's §8.4 "NA token trap" therefore applies to one checkpoint, not five.**
+- `_BOOL_TOKENS` accepts all three spellings.
+- **Key normalisation.** `db_master_2.csv` and `db_selected.csv` write
+  `Year_Delta` as a float, so the key reads `"2013.0"` there and `2013` here.
+  Compared as text nothing matches and every row looks unpaired. `_norm_key`
+  sends numeric-looking keys through Float64; `CompanyID` and `PersonID` do not
+  cast and stay text.
+- **Null keys.** One row (`807550-48`) has a null `Year_Delta` and cannot be
+  aligned with anything. Such rows are dropped and counted in
+  `keys_null_ref` / `keys_null_act`; the report passes when the two counts
+  agree, instead of reporting a phantom missing key on both sides.
+
 ### A4 — `r_injected` is no longer needed
 
 It existed to isolate the RF as the only divergence at C and D. With A1 the
