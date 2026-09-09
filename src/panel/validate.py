@@ -355,6 +355,34 @@ EST_COLUMNS: frozenset[str] = frozenset(
     }
 )
 
+#: The six competitor columns of `data/raw/panel.csv.gz`. They cannot be
+#: reproduced from the extraction in `data/raw/pitchbook/`, and the cause is
+#: known: that panel's competitor columns were computed from a different
+#: download of CompanySimilarRelation.csv.
+#:
+#: The evidence is not circumstantial. Checkpoint B reproduces
+#: SimilarityScoreMean, SimilarityScoreMax, N_Competitors, Same_Country,
+#: N_Europe and N_Outside_Europe in db_master_1.csv exactly from the extraction
+#: we have, so that file is the one the R ran on. Yet 655,869 rows over 84,138
+#: companies carry the *same* competitor count as the reference panel and a
+#: different mean similarity, in both directions — same companies, different
+#: scores. On company 100063-00 the reference mean of 97.315 is not the mean of
+#: any subset of that company's ten similarity scores in our file.
+#:
+#: Similarity scores are model output and PitchBook recomputes them between
+#: downloads. Nothing here can be fixed by changing the code; matching those
+#: numbers would mean fitting to a dataset we do not have.
+COMPETITOR_VINTAGE_COLUMNS: frozenset[str] = frozenset(
+    {
+        "N_Competitors",
+        "Same_Country",
+        "SimilarityScoreMean",
+        "N_Competitors_All",
+        "Same_Country_All",
+        "SimilarityScoreMean_All",
+    }
+)
+
 #: Computed by the R at 1_Arrange_DB.R:1246 and then dropped by vars_selected.
 #: We keep it, so from db_selected onwards it is a column the references lack.
 KEPT_EXTRA: frozenset[str] = frozenset({"TR_D"})
@@ -403,7 +431,7 @@ CHECKPOINTS: dict[str, Checkpoint] = {
         reference_at_root=True,
         expected_missing=EST_COLUMNS,
         expected_extra=KEPT_EXTRA,
-        expected_diff=frozenset({"StageBlock"}),
+        expected_diff=frozenset({"StageBlock"}) | COMPETITOR_VINTAGE_COLUMNS,
     ),
 }
 

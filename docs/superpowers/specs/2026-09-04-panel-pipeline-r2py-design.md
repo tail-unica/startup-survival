@@ -78,6 +78,27 @@ regole sono state ricostruite e verificate a divergenza zero su tutte le
 I checkpoint diventano sei; le regole dello stadio 6 e le note dello
 stadio 7 stanno nei Task 16 e 17 del piano.
 
+**E3-bis — il checkpoint F non e' riproducibile per intero, e si sa
+perche'.** Le sei colonne competitor di `data/raw/panel.csv.gz`
+(`N_Competitors`, `Same_Country`, `SimilarityScoreMean` e le tre `_All`)
+sono state calcolate da un download di `CompanySimilarRelation.csv`
+diverso da quello in `data/raw/pitchbook/`. Le altre 107 colonne
+coincidono al 100%.
+
+La prova non e' indiziaria: il checkpoint B riproduce esattamente
+`SimilarityScoreMean`, `SimilarityScoreMax`, `N_Competitors`,
+`Same_Country`, `N_Europe` e `N_Outside_Europe` di `db_master_1.csv`
+dalla nostra estrazione, quindi quel file e' quello su cui ha girato
+l'R. Eppure **655.869 righe su 84.138 aziende hanno lo stesso numero di
+competitor del panel di riferimento e una media di similarita' diversa**,
+in entrambe le direzioni: stesse aziende, punteggi diversi. Sull'azienda
+`100063-00` la media di riferimento 97,315 non e' la media di nessun
+sottoinsieme dei dieci punteggi presenti nel nostro file.
+
+I punteggi di similarita' sono output di un modello che PitchBook
+ricalcola fra un download e l'altro. Non e' correggibile dal codice:
+farli combaciare significherebbe adattarsi a dati che non abbiamo.
+
 Conseguenza sui confronti: le sei colonne `_Est` esistono nei
 riferimenti e non nel nostro output (**assenti attese**, escluse dal
 confronto a C, D, E, F); `TR_D` esiste nel nostro output e non in
