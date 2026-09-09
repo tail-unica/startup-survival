@@ -33,6 +33,59 @@ colonna negli stadi che non hanno un file di riferimento dedicato
 - Qualunque modifica a `src/preprocessing.py` e al resto del codice
   di modellazione.
 
+## 1-bis. Emendamento 2026-09-09
+
+Tre decisioni successive alla stesura. **Dove questa sezione e il resto
+del documento divergono, vale questa.**
+
+**E1 — l'imputazione RandomForest non viene portata.**
+`TotalInvestedCapital_Est` e le sei colonne `TotalRaised_Est*` non
+vengono prodotte. Gli importi mancanti restano mancanti e li riempie
+l'imputazione che già gira prima del training. Il §7 resta come analisi
+del problema, ma le tre strategie descritte alla voce «Interfaccia»
+decadono: niente `imputation.py`, niente `imputation_strategy` in
+`PanelConfig`, niente `r_injected` (non c'è più nulla da iniettare) e
+niente `seed` (la pipeline diventa deterministica).
+
+Nel punto dove l'R esegue il modello, lo stadio 4 porta un commento che
+elenca le sette colonne create dalla RF e perché è sospesa.
+
+Impatto misurato sui dataset di modellazione, non sul panel:
+`dataset_window` 5.914 righe su 30.300 (19,5%) hanno un valore imputato,
+pari al 29,7% della massa della feature; `dataset_nowindow` circa 9.739
+aziende su 30.300 (32,1%), +7,6% di massa. Ripetere i run è quindi
+obbligatorio, SHAP compreso.
+
+Resta aperta, da decidere prima dell'ultimo task: quale colonna prende
+il posto di `TotalRaised_Est` in `src/preprocessing.py` — `TotalRaised`
+(zero dove l'importo non è dichiarato) oppure `TotalRaised_NA` (null lì,
+così l'imputatore a valle vede il buco). Entrambe vengono prodotte.
+
+**E2 — `TR_D` diventa una colonna mantenuta.** Calcolata dall'R alla
+riga 1246 e poi buttata via da `vars_selected`, vale 1 quando l'anno-
+azienda non ha nessun deal. Va aggiunta a `vars_selected`.
+
+**E3 — il post-processing rientra nello scope.** Il file intermedio
+mancante `db_master_panel.csv.gz` è stato fornito e le sue quattro
+regole sono state ricostruite e verificate a divergenza zero su tutte le
+882.324 righe. Nascono due stadi e due checkpoint:
+
+| checkpoint | stadio | riferimento | righe |
+|---|---|---|---|
+| E | 6 | `db_master_panel.csv.gz` | 882.324 |
+| F | 7 | `data/raw/panel.csv.gz` | 882.324 |
+
+I checkpoint diventano sei; le regole dello stadio 6 e le note dello
+stadio 7 stanno nei Task 16 e 17 del piano.
+
+Conseguenza sui confronti: le sei colonne `_Est` esistono nei
+riferimenti e non nel nostro output (**assenti attese**, escluse dal
+confronto a C, D, E, F); `TR_D` esiste nel nostro output e non in
+`db_selected.csv`, `db_master_panel.csv.gz`, `panel.csv.gz`
+(**in più attesa**, esclusa a D, E, F); `StageBlock` non è riproducibile
+ed è dichiarata divergenza attesa a E e F. Tutto il resto deve
+coincidere esattamente.
+
 ## 2. Contesto: cosa fa la pipeline R
 
 Due script in `src/RCode/`.

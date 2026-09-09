@@ -22,12 +22,6 @@ def test_paths_are_relative_to_repo_root():
     assert cfg.interim_dir == Path("data/interim")
 
 
-def test_default_imputation_strategy_is_standalone():
-    assert PanelConfig().imputation_strategy == "r_legacy"
-
-
-def test_rejects_unknown_imputation_strategy():
-    import pytest
-
-    with pytest.raises(ValueError, match="unknown imputation strategy"):
-        PanelConfig(imputation_strategy="magic")
+def test_active_fixes_lists_only_enabled_flags():
+    assert PanelConfig().active_fixes() == ()
+    assert PanelConfig(fix_same_country_narm=True).active_fixes() == ("fix_same_country_narm",)

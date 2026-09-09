@@ -25,6 +25,75 @@
 
 ---
 
+## Amendment 2026-09-09 — supersedes parts of the plan below
+
+Three decisions taken after the plan was written. **Where this section and a
+task below disagree, this section wins.**
+
+### A1 — The RandomForest imputation is dropped, not ported
+
+`TotalInvestedCapital_Est` and the six `TotalRaised_Est*` columns are **not
+produced at all**. Missing amounts stay missing and are filled by the
+imputation step that already runs before model training.
+
+- **Task 12 is cancelled.** No `src/panel/imputation.py`, no
+  `tests/panel/test_imputation.py`.
+- `PanelConfig` loses `imputation_strategy`, `IMPUTATION_STRATEGIES`, the
+  `__post_init__` validation and `seed` (nothing is random any more). The two
+  imputation tests in `tests/panel/test_config.py` are deleted.
+- Stage 4 carries, at the exact point where the R runs the model
+  (`1_Arrange_DB.R:1037-1119`), a comment block naming the seven columns the
+  RF created and why it is suspended. That comment is a deliverable, not
+  decoration.
+- Stage 5 drops the six `_Est` columns from the cumulative block and from
+  `vars_selected`.
+- Consequence for verification: at checkpoints C, D, E and F those columns
+  exist in the reference and not in our output. They are declared
+  **expected-missing** and excluded from the comparison; every other column
+  must still match exactly.
+- Consequence downstream: `src/preprocessing.py` currently selects
+  `TotalRaised_Est` (line 506) and sums it (lines 303/311). Which column
+  replaces it — `TotalRaised` (zero where the amount was undisclosed) or
+  `TotalRaised_NA` (null there, so the downstream imputer sees the hole) — is
+  **an open question, to be asked before the final task**, not decided here.
+  Both columns are produced either way.
+
+### A2 — `TR_D` becomes a kept column
+
+`TR_D` is computed by the R at `1_Arrange_DB.R:1246` and then dropped by
+`vars_selected` in `2_Arrange_Final.R`. It is 1 exactly when the company-year
+has no deal at all, and is the honest signal that replaces the imputation.
+Add `TR_D` to `vars_selected` in stage 5.
+
+Consequence for verification: `TR_D` is present in `db_master_2.csv`
+(checkpoint C, so it is verified there) but **absent from `db_selected.csv`,
+`db_master_panel.csv.gz` and `panel.csv.gz`**. At checkpoints D, E and F it is
+declared **expected-extra** and excluded from the comparison.
+
+### A3 — Two new stages, two new checkpoints
+
+The post-R processing is no longer out of scope: the missing intermediate
+`db_master_panel.csv.gz` has been supplied and its four rules were
+reverse-engineered and verified to the row. See new Tasks 16 and 17 at the end
+of this plan.
+
+| checkpoint | stage | reference | rows | key |
+|---|---|---|---|---|
+| E | 6 | `db_master_panel.csv.gz` | 882.324 | `(CompanyID, Year_Delta)` |
+| F | 7 | `data/raw/panel.csv.gz` | 882.324 | `(CompanyID, Year_Delta)` |
+
+`CHECKPOINTS` in Task 5 therefore holds six entries, not four, and the
+`test_four_checkpoints_are_registered_with_the_expected_shapes` test becomes
+`test_six_checkpoints...`.
+
+### A4 — `r_injected` is no longer needed
+
+It existed to isolate the RF as the only divergence at C and D. With A1 the
+columns are not produced, so there is nothing to inject: they are simply
+excluded from the comparison and everything else must match exactly.
+
+---
+
 ### Task 1: Package scaffolding and configuration
 
 **Files:**
@@ -2821,13 +2890,197 @@ git commit -m "docs(panel): add narrative notebook and measure bug B5"
 
 ---
 
+### Task 16: Stage 6 — stage grouping and truncation, CHECKPOINT E
+
+**Files:**
+- Create: `src/panel/stage6_panel.py`
+- Modify: `src/panel/validate.py`
+- Test: `tests/panel/test_stage6.py`
+
+**Interfaces:**
+- Consumes: `db_final.parquet`.
+- Produces: `run(cfg) -> None`, writing `db_master_panel.parquet`.
+
+**Source:** no R and no Python script exists for this step — the code that
+produced `db_master_panel.csv.gz` was lost. The four rules below were
+reverse-engineered from the file itself and each was verified against it at
+zero divergence over all 882.324 rows. **They are the specification.**
+
+**The rules, in order.** Sort by `(CompanyID, Year_Delta)` first; every rule
+depends on row order.
+
+- **R1 — `GrowthStageGroup`.** A plain remap of `GrowthStage`, null-preserving:
+  `Preseed`/`Seed`/`EarlyVC` → `Early`; `LaterVC_or_Other` → `Later`;
+  `Out` → `Out`; `Exit_M&A`/`Exit_Public` → `Exit`.
+  *Verified: 0 divergent rows.*
+
+- **R2 — `GrowthNextStageGroup` and `TimeNextStageGroup`, computed on the
+  UNTRUNCATED sequence.** This is the rule a naive implementation gets wrong:
+  they must be computed *before* R3 removes the terminal rows, otherwise `Out`
+  and `Exit` could never appear as a future stage. For row *i* of a company,
+  scan forward for the first *j > i* whose group is non-null and different
+  from row *i*'s group.
+  - If row *i*'s own group is **null**, there is never a match — this
+    reproduces R's `NA != x` semantics, the same mechanism as
+    `GrowthNextStage` in `2_Arrange_Final.R:216-231`.
+  - Match found → `GrowthNextStageGroup` is that group, `TimeNextStageGroup`
+    is `j - i`.
+  - No match → `GrowthNextStageGroup` is the literal string `"Stay"` and
+    `TimeNextStageGroup` is the distance in rows to the company's **last
+    untruncated row**, `n - 1 - i`. Note `"Stay"` is a real value in
+    `db_master_panel.csv.gz`; the competitors notebook replaces it with the
+    current group, and that replacement belongs to stage 7, not here.
+
+  *Verified: 0 divergent rows on both columns (one row with a null
+  `Year_Delta` is unjoinable and excluded).*
+
+- **R3 — truncation.** Drop every row from the company's first row whose
+  group is `Out` or `Exit` onwards, that row included. This also removes
+  non-terminal rows that happen to follow a terminal one — 5.365 of them, and
+  they are not an anomaly to work around.
+  *Verified: 882.324/882.324 rows and 116.327/116.327 companies, exactly.*
+
+- **R4 — `YearsInStage` recomputed on the group.** `rle_sequence` (Task 2b)
+  applied to `GrowthStageGroup` on the truncated frame, R's `rle` semantics
+  with each null opening its own run. This **overwrites** the `YearsInStage`
+  that stage 5 computed on the ungrouped `GrowthStage`.
+  *Verified: 0 divergent rows.*
+
+**`StageBlock` is knowingly not reproduced.** The value in
+`db_master_panel.csv.gz` matches neither a recomputation on `GrowthStage`
+(81.954 rows off) nor one on `GrowthStageGroup` (36.408 off) nor the value
+carried over from `db_selected`. The column is dead — nothing downstream
+reads it, `preprocessing.py` included. Carry stage 5's value through, add a
+comment saying so, and register `StageBlock` as an expected difference at
+checkpoint E. Do not spend time on it.
+
+- [ ] **Step 1: Write the failing test**
+
+`tests/panel/test_stage6.py`, on a small hand-built frame, must pin:
+one company whose stage goes `null, Preseed, Seed, LaterVC_or_Other, Out,
+Seed` — asserting the `Out` row and the `Seed` row after it are both gone,
+that the `Preseed` row's `GrowthNextStageGroup` is `Later` (not `Early`,
+because `Seed` maps to the same group), that the `LaterVC_or_Other` row's is
+`Out` with time 1, that the leading null row gets `"Stay"` with time 5
+(distance to the last untruncated row), and that `YearsInStage` reads
+`1, 1, 2, 1` on the four surviving rows.
+
+- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 3: Implement `src/panel/stage6_panel.py`**
+- [ ] **Step 4: Run test to verify it passes**
+
+- [ ] **Step 5: Register checkpoint E and run it**
+
+```bash
+.venv/bin/python -m src.panel.validate --checkpoint E
+```
+Expected: `PASS`, with `StageBlock` reported as an expected difference, the
+six `_Est` columns as expected-missing and `TR_D` as expected-extra.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/panel/stage6_panel.py src/panel/validate.py tests/panel/test_stage6.py
+git commit -m "feat(panel): add stage 6, stage grouping and truncation"
+```
+
+---
+
+### Task 17: Stage 7 — competitor timing, CHECKPOINT F
+
+**Files:**
+- Create: `src/panel/stage7_competitors.py`
+- Modify: `src/panel/validate.py`
+- Test: `tests/panel/test_stage7.py`
+
+**Interfaces:**
+- Consumes: `db_master_panel.parquet`, `Company.csv`, `CompanySimilarRelation.csv`.
+- Produces: `run(cfg) -> None`, writing `panel.parquet` and
+  `data/interim/panel.csv.gz`.
+
+**Source:** `notebook_temporizzazione_competitors.ipynb`, cells 4 and 6. The
+R leaves the competitor columns static; this stage replaces them with
+year-by-year ones. **Never write to `data/raw/panel.csv.gz`** — that file is
+the reference for this checkpoint.
+
+**Translation notes.**
+- `company_life` is built from **all** 134.355 companies in `Company.csv`, not
+  only those with `YearFounded > 1999`: a competitor may be older than the
+  panel's cohorts. Keep only rows with both `YearFounded` and `MaxYear`
+  non-null.
+- **`MaxYear` must use `rutils.parse_date_r`, not the notebook's parser.** The
+  notebook reads dates as `%m/%d/%Y` with an `%m/%d/%y` fallback; chrono maps
+  a two-digit `25`-`69` to 2025-2069 while R's `cutoff_2000 = 24` maps it to
+  1925-1969. Since `MaxYear` is the end of a competitor's activity window, the
+  two conventions disagree about whether a competitor is alive. Use the R
+  primitive so the whole pipeline parses dates one way. Also use
+  `FiscalDate` day 30, as stage 1 does, not the notebook's 28 — it cannot
+  change a year, but there is no reason to keep two spellings.
+- The relation is **directed** and stays directed: `CompanyID` declares
+  `SimilarCompanyID` as similar; the reverse pair is not added. The notebook
+  says so explicitly.
+- Active-competitor pairs: `IsCompetitor == "Yes"`, `CompanyID` in the panel,
+  `SimilarCompanyID` in `company_life`, and
+  `YF_comp <= Year_Delta <= MY_comp`.
+- Per `(CompanyID, Year_Delta)`: `N_Competitors` = distinct
+  `SimilarCompanyID`; `Same_Country` = count of pairs whose two `HQCountry`
+  agree, nulls dropped rather than counted false; `SimilarityScoreMean` = mean
+  `SimilarityScore` over **all** similar companies active that year, not only
+  the competitors. Null → 0 on all three.
+- The static `_All` trio is the same aggregation without the year filter.
+- Drop `N_Europe` and `N_Outside_Europe`.
+- Replace `GrowthNextStageGroup == "Stay"` with the current
+  `GrowthStageGroup`.
+- Remap `CompanyID` to consecutive integers from 1, ordered by the string id.
+  **This is the last operation of the pipeline**, because it destroys every
+  join back to the reference files.
+
+**Three semantic changes to record in the module docstring**, since the
+columns keep their R names while changing meaning: `Same_Country` goes from
+boolean to count; `SimilarityScoreMean` is filled with 0 where no similar
+company was active, which is the *minimum* of the scale, not a neutral value;
+and `N_Competitors_All` is not the R's `N_Competitors` — it is restricted to
+competitors that have a usable life window. A fourth, methodological, belongs
+in the paper rather than the code: `MaxYear` is the last year with *data*, not
+the year of death, so the timing over-weights competitors that PitchBook
+covers well.
+
+- [ ] **Step 1: Write the failing test**
+
+`tests/panel/test_stage7.py` on hand-built frames: a competitor whose window
+covers only part of the panel years must be counted in those years and not
+outside them; a pair with one null `HQCountry` must not increment
+`Same_Country`; `SimilarityScoreMean` must average non-competitor similar
+companies too; a `"Stay"` row must take the current group.
+
+- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 3: Implement `src/panel/stage7_competitors.py`**
+- [ ] **Step 4: Run test to verify it passes**
+
+- [ ] **Step 5: Register checkpoint F and run it**
+
+```bash
+.venv/bin/python -m src.panel.validate --checkpoint F
+```
+Expected: `PASS` against `data/raw/panel.csv.gz`, with the same three expected
+exclusions as checkpoint E.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/panel/stage7_competitors.py src/panel/validate.py tests/panel/test_stage7.py
+git commit -m "feat(panel): add stage 7, year-by-year competitor columns"
+```
+
+---
+
 ## Verification of the whole plan
 
 Run once at the end:
 
 ```bash
 .venv/bin/python -m pytest tests/ -v
-for c in A B C D; do .venv/bin/python -m src.panel.validate --checkpoint $c --strategy r_injected; done
+for c in A B C D E F; do .venv/bin/python -m src.panel.validate --checkpoint $c; done
 ```
 
-Expected: every test passes, and all four checkpoints report `PASS`.
+Expected: every test passes, and all six checkpoints report `PASS`.

@@ -25,19 +25,20 @@ BUG_FLAGS: tuple[str, ...] = (
     "fix_is_out_na",  # B10
 )
 
-IMPUTATION_STRATEGIES: tuple[str, ...] = ("r_legacy", "r_injected", "leakage_free")
-
 
 @dataclass(frozen=True)
 class PanelConfig:
-    """Paths, bug flags and imputation strategy for one pipeline run."""
+    """Paths and bug flags for one pipeline run.
+
+    There is no imputation setting and no seed: the RandomForest imputation of
+    ``TotalInvestedCapital`` is not ported (see ``stage4_deals``), so the whole
+    pipeline is deterministic.
+    """
 
     raw_dir: Path = Path("data/raw/pitchbook")
     ref_dir: Path = Path("data/reference")
     interim_dir: Path = Path("data/interim")
 
-    seed: int = 12
-    imputation_strategy: str = "r_legacy"
     ignore_failed_checks: bool = False
     n_examples: int = 10
     rtol: float = 1e-9
@@ -52,13 +53,6 @@ class PanelConfig:
     fix_europe_asymmetry: bool = False
     fix_dup_coalesce: bool = False
     fix_is_out_na: bool = False
-
-    def __post_init__(self) -> None:
-        if self.imputation_strategy not in IMPUTATION_STRATEGIES:
-            raise ValueError(
-                f"unknown imputation strategy {self.imputation_strategy!r}; "
-                f"expected one of {IMPUTATION_STRATEGIES}"
-            )
 
     def interim(self, name: str) -> Path:
         """Path of an interim parquet, creating the directory if needed."""
