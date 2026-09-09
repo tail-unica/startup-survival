@@ -246,3 +246,14 @@ def r_if_else(cond: pl.Expr, then, otherwise) -> pl.Expr:
     match and the row falls through, which is what ``pl.when`` already does.
     """
     return pl.when(cond.is_null()).then(None).when(cond).then(then).otherwise(otherwise)
+
+
+def r_cum_sum(col: pl.Expr) -> pl.Expr:
+    """``cumsum`` as R computes it: NA poisons the rest of the vector.
+
+    ``cumsum(c(1, NA, 3))`` is ``c(1, NA, NA)``; polars' ``cum_sum`` leaves a
+    null in place and keeps accumulating, which would silently give
+    ``c(1, null, 4)``. Callers apply ``.over(group)`` themselves.
+    """
+    poisoned = col.is_null().cast(pl.Int8).cum_max().cast(pl.Boolean)
+    return pl.when(poisoned).then(None).otherwise(col.fill_null(0).cum_sum())

@@ -117,3 +117,11 @@ def test_r_if_else_returns_null_when_the_condition_is_null():
     df = pl.DataFrame({"c": [True, False, None], "a": [1, 1, 1], "b": [2, 2, 2]})
     out = df.select(r_if_else(pl.col("c"), pl.col("a"), pl.col("b")).alias("r"))
     assert out["r"].to_list() == [1, 2, None]
+
+
+def test_r_cum_sum_poisons_the_rest_of_the_group():
+    from src.panel.rutils import r_cum_sum
+
+    df = pl.DataFrame({"g": ["a"] * 4, "x": [1.0, None, 3.0, 4.0]})
+    out = df.with_columns(r_cum_sum(pl.col("x")).over("g").alias("c"))
+    assert out["c"].to_list() == [1.0, None, None, None]
