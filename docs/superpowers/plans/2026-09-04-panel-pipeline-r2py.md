@@ -547,9 +547,13 @@ def test_stage_block_fix_flag_stops_the_na_propagation():
 
 
 def test_next_different_skips_nulls_and_reports_distance():
+    # CORRECTED 2026-09-09: the plan originally expected "Seed"/1 on row 0.
+    # Row 0's own stage is null, and in R `which(future != NA)[1]` is NA, so
+    # both outputs are null. Confirmed against company 100026-46 in
+    # db_selected.csv, whose 2013 row has a null stage and null Next/Time.
     out = next_different(_stages(), "GrowthStage", ["CompanyID"], "Next", "Time")
-    assert out["Next"].to_list() == ["Seed", "EarlyVC", "LaterVC", "LaterVC", None, None]
-    assert out["Time"].to_list() == [1, 1, 2, 1, None, None]
+    assert out["Next"].to_list() == [None, "EarlyVC", "LaterVC", "LaterVC", None, None]
+    assert out["Time"].to_list() == [None, 1, 2, 1, None, None]
 
 
 def test_cumany_is_monotone_within_group():
