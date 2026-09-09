@@ -7,6 +7,8 @@ not, but others do) and an inferred integer key breaks joins silently.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import polars as pl
 
 from src.panel.config import PanelConfig
@@ -67,3 +69,14 @@ def to_num(name: str) -> pl.Expr:
 def to_int(name: str) -> pl.Expr:
     """Cast a String column to Int64; anything non-integer becomes null."""
     return pl.col(name).cast(pl.Int64, strict=False).alias(name)
+
+
+def load_europe() -> dict[str, bool]:
+    """Frozen country -> is-Europe mapping, recovered from the R run.
+
+    Derived once by scripts/derive_europe_mapping.py so that the panel never
+    depends on a third-party classification that could change between releases.
+    """
+    path = Path(__file__).parent / "data" / "europe.csv"
+    df = pl.read_csv(path, infer_schema_length=0)
+    return {r["country"]: r["is_europe"] == "true" for r in df.to_dicts()}

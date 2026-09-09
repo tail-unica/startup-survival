@@ -1,0 +1,211 @@
+country,is_europe
+Afghanistan,false
+Albania,true
+Algeria,false
+American Samoa,false
+Andorra,true
+Angola,false
+Anguilla,false
+Antigua,false
+Argentina,false
+Armenia,false
+Aruba,false
+Australia,false
+Austria,true
+Azerbaijan,false
+Bahamas,false
+Bahrain,false
+Bangladesh,false
+Barbados,false
+Belarus,true
+Belgium,true
+Belize,false
+Benin,false
+Bermuda,false
+Bhutan,false
+Bolivia,false
+"Bonaire, Sint Eustatius and Saba",false
+Bosnia and Herzegovina,true
+Botswana,false
+Brazil,false
+British Indian Ocean Territory,false
+British Virgin Islands,false
+Brunei,false
+Bulgaria,true
+Burkina Faso,false
+Burundi,false
+Cambodia,false
+Cameroon,false
+Canada,false
+Cape Verde,false
+Cayman Islands,false
+Central African Republic,false
+Chad,false
+Chile,false
+China,false
+Colombia,false
+Comoros,false
+Congo,false
+Cook Islands,false
+Costa Rica,false
+Croatia,true
+Cuba,false
+Curacao,false
+Cyprus,false
+Czech Republic,true
+Denmark,true
+Djibouti,false
+Dominica,false
+Dominican Republic,false
+East Timor,false
+Ecuador,false
+Egypt,false
+El Salvador,false
+Estonia,true
+Ethiopia,false
+Falkland Islands,false
+Faroe Islands,true
+Fiji,false
+Finland,true
+France,true
+Gabon,false
+Gaza Strip,false
+Georgia,false
+Germany,true
+Ghana,false
+Gibraltar,true
+Greece,true
+Greenland,false
+Grenada,false
+Guatemala,false
+Guinea,false
+Guinea-Bissau,false
+Guyana,false
+Haiti,false
+Honduras,false
+Hong Kong,false
+Hungary,true
+Iceland,true
+India,false
+Indonesia,false
+Iran,false
+Iraq,false
+Ireland,true
+Israel,false
+Italy,true
+Ivory Coast,false
+Jamaica,false
+Japan,false
+Jordan,false
+Kazakhstan,false
+Kenya,false
+Kosovo,false
+Kuwait,false
+Kyrgyzstan,false
+Laos,false
+Latvia,true
+Lebanon,false
+Lesotho,false
+Liberia,false
+Libya,false
+Liechtenstein,true
+Lithuania,true
+Luxembourg,true
+Macau,false
+Madagascar,false
+Malawi,false
+Malaysia,false
+Maldives,false
+Mali,false
+Malta,true
+Marshall Islands,false
+Mauritania,false
+Mauritius,false
+Mayotte,false
+Mexico,false
+Micronesia,false
+Moldova,true
+Monaco,true
+Mongolia,false
+Montenegro,true
+Morocco,false
+Mozambique,false
+Myanmar,false
+Namibia,false
+Nepal,false
+Netherlands,true
+New Caledonia,false
+New Zealand,false
+Nicaragua,false
+Niger,false
+Nigeria,false
+North Macedonia,true
+Northern Mariana Islands,false
+Norway,true
+Oman,false
+Pakistan,false
+Palestine,false
+Panama,false
+Papua New Guinea,false
+Paraguay,false
+Peru,false
+Philippines,false
+Poland,true
+Polynesia,false
+Portugal,true
+Qatar,false
+Reunion,false
+Romania,true
+Russia,true
+Rwanda,false
+Saint Kitts and Nevis,false
+Saint Lucia,false
+Saint Vincent,false
+Samoa,false
+San Marino,true
+Saudi Arabia,false
+Senegal,false
+Serbia,true
+Seychelles,false
+Sierra Leone,false
+Singapore,false
+Sint Maarten,false
+Slovakia,true
+Slovenia,true
+Solomon Islands,false
+Somalia,false
+South Africa,false
+South Korea,false
+Spain,true
+Sri Lanka,false
+Sudan,false
+Suriname,false
+Swaziland,false
+Sweden,true
+Switzerland,true
+Syria,false
+Taiwan,false
+Tajikistan,false
+Tanzania,false
+Thailand,false
+The Gambia,false
+Togo,false
+Trinidad and Tobago,false
+Tunisia,false
+Turkey,false
+Turkmenistan,false
+Uganda,false
+Ukraine,true
+United Arab Emirates,false
+United Kingdom,true
+United States,false
+Uruguay,false
+Uzbekistan,false
+Vanuatu,false
+Venezuela,false
+Vietnam,false
+West Bank,false
+Western Sahara,false
+Yemen,false
+Zambia,false
+Zimbabwe,false
