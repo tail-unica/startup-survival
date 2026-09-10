@@ -181,3 +181,18 @@ def test_na_token_is_stripped_from_keys_before_aligning():
     assert rep.keys_null_ref == 1
     assert rep.keys_null_act == 1
     assert rep.passed()
+
+
+def test_typed_reference_compares_without_token_parsing():
+    # The baseline comparison reads two parquets, so booleans and dates arrive
+    # already typed on both sides and must not go through the text tables.
+    import datetime as dt
+
+    act = pl.DataFrame(
+        {"k": ["a", "b"], "b": [True, False], "d": [dt.date(2020, 1, 2), None], "v": [1.0, 2.0]}
+    )
+    assert verify(act, act, key=["k"], name="t").passed()
+    other = act.with_columns(pl.Series("b", [False, False]))
+    rep = verify(other, act, key=["k"], name="t")
+    assert rep.column("b").n_diff == 1
+    assert not rep.passed()

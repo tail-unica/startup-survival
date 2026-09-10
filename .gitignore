@@ -26,3 +26,6 @@ data/interim/
 # Script R originali: impalcatura temporanea, cancellata quando il port in
 # Python e' tradotto e validato. Contengono percorsi assoluti personali.
 src/RCode/
+
+# Base di confronto congelata prima della migrazione nel notebook
+data/baseline/

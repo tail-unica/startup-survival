@@ -233,9 +233,13 @@ def verify(
         max_abs = None
 
         # A Date has no meaningful numeric comparison against "2025-07-30";
-        # render it the way the reference spells it and compare as text.
+        # render it the way the reference spells it and compare as text. When
+        # the reference is a parquet the date is a Date on both sides, so both
+        # get rendered.
         if dtype in (pl.Date, pl.Datetime):
             act_raw = act_raw.dt.to_string("%Y-%m-%d")
+            if ref_raw.dtype in (pl.Date, pl.Datetime):
+                ref_raw = ref_raw.dt.to_string("%Y-%m-%d")
             dtype = pl.String
 
         if dtype == pl.String:
@@ -257,7 +261,13 @@ def verify(
                 na_only_ref = 0
                 na_only_act = 0
         elif dtype == pl.Boolean:
-            ref_v = ref_raw.replace_strict(_BOOL_TOKENS, default=None, return_dtype=pl.Boolean)
+            # An exported reference spells a boolean as text; a parquet one is
+            # already Boolean and must not go through the token table.
+            ref_v = (
+                ref_raw
+                if ref_raw.dtype == pl.Boolean
+                else ref_raw.replace_strict(_BOOL_TOKENS, default=None, return_dtype=pl.Boolean)
+            )
             act_v = act_raw
             na_only_ref = int((ref_v.is_null() & act_v.is_not_null()).sum())
             na_only_act = int((act_v.is_null() & ref_v.is_not_null()).sum())
@@ -511,13 +521,66 @@ def run_partial(cfg: PanelConfig, stage: int, actual: pl.DataFrame) -> Verificat
     return report
 
 
+#: Natural key of each interim parquet, for the baseline comparison.
+BASELINE_KEYS: dict[str, list[str]] = {
+    "db1": ["CompanyID"],
+    "db_master_1_v1": ["CompanyID"],
+    "db_master_1": ["CompanyID"],
+    "db_master_2_skeleton": ["CompanyID", "Year_Delta"],
+    "db3": ["CompanyID", "PersonID"],
+    "db_master_2_team": ["CompanyID", "Year_Delta"],
+    "db_master_2_relations": ["CompanyID", "Year_Delta"],
+    "deals_panel": ["CompanyID", "Year_Delta"],
+    "db_master_2_deals": ["CompanyID", "Year_Delta"],
+    "db_master_2": ["CompanyID", "Year_Delta"],
+    "db_selected": ["CompanyID", "Year_Delta"],
+    "db_final": ["CompanyID", "Year_Delta"],
+    "db_master_panel": ["CompanyID", "Year_Delta"],
+    "panel": ["CompanyID", "Year_Delta"],
+}
+
+#: Where the pre-migration outputs are frozen. Not data/interim, which gets
+#: wiped by a from-scratch run.
+BASELINE_DIR = Path("data/baseline")
+
+
+def run_baseline(cfg: PanelConfig, name: str) -> VerificationReport:
+    """Compare a stage's current output against the frozen pre-migration one.
+
+    Stronger than the checkpoints, and complementary to them: it covers
+    **every** column, including the ones a checkpoint declares and therefore
+    never compares — the six `_Est`, `TR_D`, `StageBlock` and the six
+    competitor columns. Both sides are typed parquet, so nothing is compared
+    as text and nothing is excused.
+    """
+    actual = pl.read_parquet(cfg.interim(f"{name}.parquet"))
+    baseline = pl.read_parquet(BASELINE_DIR / f"{name}.parquet")
+    report = verify(
+        actual,
+        baseline,
+        key=BASELINE_KEYS[name],
+        name=f"{name} contro la base congelata",
+        rtol=cfg.rtol,
+        n_examples=cfg.n_examples,
+    )
+    report.to_json(cfg.interim_dir / "reports" / f"baseline_{name}.json")
+    return report
+
+
 def _main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description="Verifica un checkpoint del panel.")
-    parser.add_argument("--checkpoint", required=True, choices=sorted(CHECKPOINTS))
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--checkpoint", choices=sorted(CHECKPOINTS))
+    group.add_argument("--baseline", choices=sorted(BASELINE_KEYS))
     args = parser.parse_args()
-    report = run_checkpoint(PanelConfig(), args.checkpoint)
+    cfg = PanelConfig()
+    report = (
+        run_checkpoint(cfg, args.checkpoint)
+        if args.checkpoint
+        else run_baseline(cfg, args.baseline)
+    )
     print(report.render())
     return 0 if report.passed() else 1
 
