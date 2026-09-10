@@ -536,6 +536,10 @@ look-ahead in un lavoro che denuncia il look-ahead:
 *Misurato sui dataset pubblicati: nel dataset con finestra temporale 5.914
 righe su 30.300 (**19,5%**) avevano un valore imputato, pari al **29,7% della
 massa della feature**; senza finestra circa 9.739 aziende su 30.300 (32,1%).*
+*Misurato a livello deal: le righe che soddisfano i criteri dell'R — importo
+mancante e sinossi che parla di importo non dichiarato — sono **53.975 su
+332.818**, prima del filtro sui predittori completi. La spec ne stimava «al
+massimo 48.000» come limite superiore, ed era una sottostima.*
 **Non è portata.** Il commento `RF_SUSPENDED` in cima al modulo elenca le sette
 colonne che creava e dove.
 
