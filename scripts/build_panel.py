@@ -44,9 +44,7 @@ from src.panel.config import PanelConfig  # noqa: E402
 #: through stage 6; a subprocess per stage hands the memory back every time,
 #: and the stages already communicate through parquet files rather than memory.
 STAGES = [
-    # fasi 1 e 2: migrate in build_panel.ipynb
-    (3, "competitor", "stage3_relations", "run_competitors", ["B"]),
-    (3, "dipendenti, financials, news", "stage3_relations", "run_panel", []),
+    # fasi 1, 2 e 3: migrate in build_panel.ipynb
     (4, "deal e investitori", "stage4_deals", "run", []),
     (5, "finalizzazione", "stage5_final", "run", ["C", "D"]),
     (6, "raggruppamento stadi e troncamento", "stage6_panel", "run", ["E"]),

@@ -470,8 +470,9 @@ il riferimento ne conta 1.137 distribuite su 248 righe di panel.* `N_News` è
 quindi **zero sul 99,98% delle righe**: è di fatto una costante e non può
 portare informazione. Candidata forte.
 
-**X14 — `EmployeeCount`.** *Da misurare* su quante righe è valorizzata: se è
-sparsa come `N_News`, vale la stessa considerazione.
+**X14 — `EmployeeCount`.** *Misurato: valorizzata su 300.371 righe su
+1.001.625, il 30%.* **Non è peso morto**: la voce si chiude qui. Da 600.805
+rilevazioni grezze la deduplica per anno ne tiene 392.055.
 
 ---
 
