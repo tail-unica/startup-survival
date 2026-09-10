@@ -2,11 +2,10 @@ import polars as pl
 
 from src.panel.config import PanelConfig
 from src.panel.validate import (
+    BASELINE_KEYS,
     CHECKPOINTS,
-    COLUMN_FINALISED_AT_STAGE,
     EST_COLUMNS,
     KEPT_EXTRA,
-    classify_partial,
     load_reference,
 )
 
@@ -66,27 +65,6 @@ def test_load_reference_leaves_the_r_na_token_as_a_string():
     assert df.null_count().sum_horizontal().item() == 0
 
 
-def test_classify_partial_separates_regressions_from_expected_differences():
-    finalised = {"a": 1, "b": 3}
-    diff_cols = {"a", "b", "c"}
-    verified, expected, regressions = classify_partial(
-        stage=2,
-        diff_columns=diff_cols,
-        all_columns={"a", "b", "c", "d"},
-        finalised=finalised,
-    )
-    assert regressions == {"a"}  # final at stage 1, differs at stage 2
-    assert expected == {"b", "c"}  # not final yet (stage 3, or unknown)
-    assert verified == {"d"}  # matches
-
-
-def test_column_finalised_map_only_names_real_columns():
-    cfg = PanelConfig()
-    ref_cols = set(load_reference(cfg, "db_master_2.csv").head(1).columns)
-    unknown = set(COLUMN_FINALISED_AT_STAGE) - ref_cols
-    assert not unknown, f"unknown columns in the map: {sorted(unknown)}"
-
-
 def test_declared_missing_and_extra_columns_exist_where_claimed():
     # A typo here would silently excuse nothing and make a checkpoint fail
     # for a reason the report cannot explain.
@@ -97,3 +75,12 @@ def test_declared_missing_and_extra_columns_exist_where_claimed():
     assert EST_COLUMNS <= sel
     assert KEPT_EXTRA <= m2  # TR_D survives into db_master_2
     assert not (KEPT_EXTRA & sel)  # and is dropped by vars_selected
+
+
+def test_every_checkpoint_has_a_baseline_counterpart():
+    """The baseline comparison must cover at least what the checkpoints do,
+    since it is the stronger of the two: it excuses no column."""
+    for cp in CHECKPOINTS.values():
+        name = cp.interim.removesuffix(".parquet")
+        assert name in BASELINE_KEYS, name
+        assert BASELINE_KEYS[name] == cp.key, name

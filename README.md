@@ -89,7 +89,6 @@ demonstrate and re-run the upstream feature-engineering pipeline.
 │       └── dataset_nowindow.csv  # Final look-ahead-biased dataset (released)
 ├── docs/                         # Design specs and implementation plans
 ├── scripts/
-│   ├── build_panel.py            # Builds the panel from the raw PitchBook CSVs
 │   ├── build_datasets.py         # Rebuilds the two processed datasets from the panel
 │   ├── check_extraction.py       # Checks a candidate extraction against the reference
 │   └── derive_europe_mapping.py  # Recovers the country->continent verdict the R used
@@ -103,12 +102,12 @@ demonstrate and re-run the upstream feature-engineering pipeline.
 │   │   ├── sklearn_models.py     # RF, LightGBM, Decision Tree, LR, SVM
 │   │   ├── mlp.py                # The network and its training loop
 │   │   └── tabpfn.py             # TabPFN v2, run locally
-│   ├── panel/                    # Panel construction pipeline, ported from R
+│   ├── panel/                    # What build_panel.ipynb calls; the logic is in the notebook
 │   │   ├── config.py             # Paths and the bug flags, all defaulting to R behaviour
 │   │   ├── rutils.py             # R/dplyr semantics that polars does not share
 │   │   ├── io.py                 # Schema-explicit readers, row-count guards
-│   │   ├── validate.py           # Per-column verification against the R intermediates
-│   │   └── stage1..stage7_*.py   # The seven stages, one parquet each
+│   │   ├── expansions.py         # The two memory-heavy expansions
+│   │   └── validate.py           # Per-column verification against the references
 │   └── RCode/                    # Original R scripts, kept for reference (not released)
 ├── tests/                        # pytest suite for src/
 ├── build_panel.ipynb             # Panel construction, stage by stage, documented
@@ -125,32 +124,29 @@ redistributable, so both are absent from a fresh clone.
 
 ## Panel construction
 
-The panel is a faithful port of the two R scripts that used to produce it, plus
-the two post-processing steps that followed them. There are two ways in:
-
-**`build_panel.ipynb`** is the documented path, and the one to read first. It
-runs the seven stages one at a time and, for each, explains what it does, which
-R lines it corresponds to, which traps a plausible translation would fall into,
-and what to look at in the result. Every stage is followed by an inspection of
-its output and, where a reference file exists, by its verification report. It is
-the reference documentation for the pipeline, so it is written to be read as
-much as run.
-
-**`scripts/build_panel.py`** is the same seven stages without the prose, for
-when the panel just needs rebuilding:
+**`build_panel.ipynb` is the pipeline.** Not a wrapper around it: the logic
+lives in the notebook, in roughly forty blocks of a dozen lines each, one per
+logical step, and each block carries the explanation of what it does, which R
+lines it translates, which trap a plausible translation would fall into, and
+what to look at in the result. The repository backs a paper, so every step has
+to be readable and checkable, not just runnable.
 
 ```bash
 uv run python scripts/check_extraction.py data/raw/pitchbook   # right vintage?
-uv run python scripts/build_panel.py --verify                  # ~8 minutes
-uv run python scripts/build_panel.py --from 4                  # resume at a stage
+# then run build_panel.ipynb top to bottom: ~8 minutes
 ```
 
-Each stage reads the previous one's parquet from `data/interim/` and writes its
-own, so re-running one does not force the others, and the kernel can be
-restarted at any point without losing work. The script runs each stage in its
-own interpreter; the notebook runs them in the kernel but keeps the verification
-reports in subprocesses, because reading a reference CSV as text costs several
-gigabytes and the pipeline already peaks around 5.7 GB.
+Only five things stay in `src/panel/`, and each for a stated reason: the R
+semantics polars does not share (`rutils.py`), the schema-explicit readers
+(`io.py`), the verification engine (`validate.py`), the configuration
+(`config.py`), and the two expansions that peak near this machine's memory
+ceiling and whose substance is one join (`expansions.py`).
+
+Each phase writes its parquet to `data/interim/` and the next reads it, so
+re-running one phase does not force the others and the kernel can be restarted
+at any point without losing work. The verification reports run in subprocesses:
+reading a reference CSV as text costs several gigabytes, and the pipeline
+already peaks around 5.7 GB of the 7 available.
 
 Nothing writes to `data/raw/` or `data/reference/`. The finished panel lands in
 `data/interim/panel.csv.gz`; `data/raw/panel.csv.gz` is the reference it is
@@ -158,9 +154,13 @@ compared against and stays untouched.
 
 ### Verification
 
-`--verify` checks each stage against the file the R produced, column by column,
-aligned by key. `uv run python -m src.panel.validate --checkpoint C` runs one on
-its own.
+Each phase is checked twice. Against **the file the R produced**, column by
+column and aligned by key — six such checkpoints, run from the notebook or with
+`uv run python -m src.panel.validate --checkpoint C`. And against a **frozen
+baseline** of the pre-notebook outputs, with
+`--baseline db_master_2`: that one is the stronger of the two, because a
+checkpoint declares some columns and never compares them while the baseline
+excuses nothing.
 
 | checkpoint | stage | reference | rows | result |
 |---|---|---|---|---|

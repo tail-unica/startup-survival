@@ -445,10 +445,6 @@ CHECKPOINTS: dict[str, Checkpoint] = {
     ),
 }
 
-#: Stage after which each db_master_2 column stops changing. Each stage task
-#: appends its own columns; see the plan's stage tasks.
-COLUMN_FINALISED_AT_STAGE: dict[str, int] = {}
-
 
 def load_reference(cfg: PanelConfig, filename: str, *, at_root: bool = False) -> pl.DataFrame:
     """Read an exported reference CSV as pure text.
@@ -459,19 +455,6 @@ def load_reference(cfg: PanelConfig, filename: str, *, at_root: bool = False) ->
     """
     path = Path(filename) if at_root else cfg.reference(filename)
     return pl.read_csv(path, infer_schema_length=0, null_values=[], quote_char='"')
-
-
-def classify_partial(
-    stage: int,
-    diff_columns: set[str],
-    all_columns: set[str],
-    finalised: dict[str, int],
-) -> tuple[set[str], set[str], set[str]]:
-    """Split columns into (verified, expected-to-differ, regressions)."""
-    regressions = {c for c in diff_columns if finalised.get(c, stage + 1) <= stage}
-    expected = diff_columns - regressions
-    verified = all_columns - diff_columns
-    return verified, expected, regressions
 
 
 def run_checkpoint(cfg: PanelConfig, letter: str) -> VerificationReport:
@@ -492,32 +475,6 @@ def run_checkpoint(cfg: PanelConfig, letter: str) -> VerificationReport:
         n_examples=cfg.n_examples,
     )
     report.to_json(cfg.interim_dir / "reports" / f"checkpoint_{letter}.json")
-    return report
-
-
-def run_partial(cfg: PanelConfig, stage: int, actual: pl.DataFrame) -> VerificationReport:
-    """Compare an intermediate db_master_2 against the final reference."""
-    reference = load_reference(cfg, "db_master_2.csv")
-    report = verify(
-        actual,
-        reference,
-        key=["CompanyID", "Year_Delta"],
-        name=f"verifica parziale stadio {stage}",
-        expected_missing=EST_COLUMNS,
-        na_collapsed_columns=frozenset({"Institute"}),
-        rtol=cfg.rtol,
-        n_examples=cfg.n_examples,
-    )
-    diff_cols = {c.column for c in report.columns if c.n_diff}
-    all_cols = {c.column for c in report.columns}
-    _, expected, regressions = classify_partial(
-        stage, diff_cols, all_cols, COLUMN_FINALISED_AT_STAGE
-    )
-    for c in report.columns:
-        c.expected = c.column in expected
-    report.to_json(cfg.interim_dir / "reports" / f"partial_stage{stage}.json")
-    if regressions:
-        print(f"REGRESSIONI allo stadio {stage}: {sorted(regressions)}")
     return report
 
 

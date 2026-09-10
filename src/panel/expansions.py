@@ -64,3 +64,23 @@ def expand_team(db3: pl.DataFrame, *, founding_year_threshold: int) -> pl.DataFr
     return company_years.join(person_years, on=["CompanyID", "Years"], how="left").filter(
         pl.col("YearFounded") > founding_year_threshold
     )
+
+
+def active_pairs(panel_years: pl.DataFrame, pairs: pl.DataFrame, extra: list[str]) -> pl.DataFrame:
+    """Pairs restricted to the panel years in which the other company is alive.
+
+    A range join: for each (company, year) of the panel, every similar company
+    whose `[YF, MY]` window contains that year. `join_where` runs it as an
+    inequality join rather than materialising the full cross product, which is
+    the only way it fits — the result is already several million rows.
+
+    Kept out of the notebook for the same two reasons as `expand_team`: the
+    intermediates are large and freed on return, and the substance is one
+    join. Which pairs go in, and what is aggregated out, stays in the notebook.
+    """
+    return panel_years.join_where(
+        pairs.select("CompanyID", "SimilarCompanyID", "YF", "MY", *extra),
+        pl.col("CompanyID") == pl.col("CompanyID_right"),
+        pl.col("Year_Delta") >= pl.col("YF"),
+        pl.col("Year_Delta") <= pl.col("MY"),
+    )

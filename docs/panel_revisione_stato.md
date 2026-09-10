@@ -1,6 +1,6 @@
 # Panel — stato della revisione fase per fase
 
-Ultimo aggiornamento: 2026-09-10 (fase 1 inlinata, in attesa di revisione)
+Ultimo aggiornamento: 2026-09-10 (tutte le fasi inlinate e verificate identiche)
 
 Questo file è il punto di ripresa. Se la sessione di lavoro si interrompe,
 basta questo file più `git log` per riprendere senza ricostruire niente.
@@ -54,33 +54,35 @@ Una fase alla volta, in ordine di pipeline (1 → 7). Per ciascuna:
 
 ## Dove siamo
 
-| fase | modulo | nel notebook | stato |
-|---|---|---|---|
-| 1 — aziende, affiliate, scheletro | *cancellato* | **sì**, blocchi 1.1–1.10 | **in revisione** |
-| 2a — tabella persona-azienda | `stage2_team.py` | no | da fare |
-| 2b — colonne di team | `stage2_team.py` | no | da fare |
-| 3a — competitor | `stage3_relations.py` | no | da fare |
-| 3b — dipendenti, financials, news | `stage3_relations.py` | no | da fare |
-| 4 — deal e investitori | `stage4_deals.py` | no | da fare |
-| 5 — finalizzazione | `stage5_final.py` | no | da fare |
-| 6 — raggruppamento e troncamento | `stage6_panel.py` | no | da fare |
-| 7 — competitor temporizzati | `stage7_competitors.py` | no | da fare |
+**Tutte e sette le fasi sono nel notebook**, e tutti i moduli degli stadi sono
+stati cancellati. In `src/panel/` restano solo `config.py`, `io.py`,
+`rutils.py`, `validate.py` ed `expansions.py`. `scripts/build_panel.py` non
+esiste piu': il notebook e' la pipeline.
 
-Punto di partenza: la traduzione è completa e verificata. Sei checkpoint,
-tutti verdi, in circa 8 minuti.
+| fase | blocchi nel notebook |
+|---|---|
+| 1 — aziende, affiliate, scheletro | 1.1 – 1.10 |
+| 2a — tabella persona-azienda | 2a.1 – 2a.16 |
+| 2b — colonne di team | 2b.1 – 2b.3 |
+| 3a — competitor | 3a.1 – 3a.5 |
+| 3b — dipendenti, financials, news | 3b.1 – 3b.3 |
+| 4 — deal e investitori | 4.1 – 4.10 |
+| 5 — finalizzazione | 5.1 – 5.8 |
+| 6 — raggruppamento e troncamento | 6.1 – 6.4 |
+| 7 — competitor temporizzati | 7.1 – 7.5 |
 
-**Fase 1** — inlinata in dieci blocchi (1.1 lettura e segnaposto NA, 1.2 flag
-di presenza, 1.3 date e numeri, 1.4 `FiscalDate`, 1.5 `db1` non filtrato, 1.6
-affiliati, 1.7 join e flag `Has_*`, 1.8 `MaxYear` e scheletro, 1.9 variabili
-time-varying, 1.10 selezione, filtro e scrittura). Modulo
-`src/panel/stage1_company.py` cancellato; `seq()` di R è diventata
-`rutils.r_seq` col suo test, e le cinque colonne data sono passate in
-`io.COMPANY_DATE_COLUMNS` perché servono anche alla fase 7 e due liste che
-divergono darebbero due `MaxYear` diversi.
-Riesecuzione da zero: `db_master_1` a 116.920 righe, **28 colonne su 28
-identiche** al riferimento, i 245 `Delta` negativi su 106 aziende del bug B6 al
-loro posto, e il checkpoint A ancora verde a valle. In attesa della revisione
-di Giulio.
+**La migrazione e' dimostrata identica.** Eseguendo il notebook da
+`data/interim` vuoto, tutte le 91 celle di codice girano senza errori in circa
+otto minuti con un picco di 5,69 GB, e **ognuno dei quattordici confronti con
+la base congelata da' zero colonne divergenti** — dalle 12 dello scheletro alle
+115 del panel finale, senza esclusioni. I sei checkpoint contro i file R sono
+verdi.
+
+**Ora si puo' iniziare a correggere.** Da qui in avanti ogni modifica va dietro
+a un flag `fix_*`, e il confronto con la base dice esattamente quali colonne si
+sono mosse e su quante righe. Se un checkpoint diventa rosso senza che tu
+l'abbia voluto, e' un errore di implementazione e non un effetto della
+correzione.
 
 ## Decisioni aperte
 
