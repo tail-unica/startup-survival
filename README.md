@@ -111,6 +111,7 @@ demonstrate and re-run the upstream feature-engineering pipeline.
 │   │   └── stage1..stage7_*.py   # The seven stages, one parquet each
 │   └── RCode/                    # Original R scripts, kept for reference (not released)
 ├── tests/                        # pytest suite for src/
+├── build_panel.ipynb             # Panel construction, stage by stage, documented
 ├── notebook.ipynb                # Main reproducible pipeline (end to end)
 ├── pyproject.toml                # Dependencies, ruff configuration
 ├── uv.lock                       # Exact resolution, committed
@@ -124,9 +125,19 @@ redistributable, so both are absent from a fresh clone.
 
 ## Panel construction
 
-`scripts/build_panel.py` rebuilds `data/interim/panel.csv.gz` from the raw
-PitchBook extraction. It is a faithful port of the two R scripts that used to
-produce the panel, plus the two post-processing steps that followed them.
+The panel is a faithful port of the two R scripts that used to produce it, plus
+the two post-processing steps that followed them. There are two ways in:
+
+**`build_panel.ipynb`** is the documented path, and the one to read first. It
+runs the seven stages one at a time and, for each, explains what it does, which
+R lines it corresponds to, which traps a plausible translation would fall into,
+and what to look at in the result. Every stage is followed by an inspection of
+its output and, where a reference file exists, by its verification report. It is
+the reference documentation for the pipeline, so it is written to be read as
+much as run.
+
+**`scripts/build_panel.py`** is the same seven stages without the prose, for
+when the panel just needs rebuilding:
 
 ```bash
 uv run python scripts/check_extraction.py data/raw/pitchbook   # right vintage?
@@ -134,10 +145,12 @@ uv run python scripts/build_panel.py --verify                  # ~8 minutes
 uv run python scripts/build_panel.py --from 4                  # resume at a stage
 ```
 
-Seven stages, each reading the previous one's parquet from `data/interim/` and
-writing its own, so re-running one does not force the others. Each stage runs in
-its own interpreter: end to end in a single process the pipeline peaks past this
-machine's memory.
+Each stage reads the previous one's parquet from `data/interim/` and writes its
+own, so re-running one does not force the others, and the kernel can be
+restarted at any point without losing work. The script runs each stage in its
+own interpreter; the notebook runs them in the kernel but keeps the verification
+reports in subprocesses, because reading a reference CSV as text costs several
+gigabytes and the pipeline already peaks around 5.7 GB.
 
 Nothing writes to `data/raw/` or `data/reference/`. The finished panel lands in
 `data/interim/panel.csv.gz`; `data/raw/panel.csv.gz` is the reference it is
