@@ -137,3 +137,14 @@ def test_r_seq_is_inclusive_and_counts_down_when_the_end_precedes_the_start():
         [2010],  # un solo anno
         [2010, 2009, 2008],  # R conta all'indietro: bug B6
     ]
+
+
+def test_r_case_when_short_circuits_on_the_first_match():
+    from src.panel.rutils import r_case_when
+
+    # "MD" sta nella prima regola e "Master" nella seconda: un "MD" non
+    # arriva mai a Master's. Invertire le regole cambia la classificazione.
+    regole = [("PhD|MD", "PhD/Doctorate"), ("MBA|Master", "Master's")]
+    df = pl.DataFrame({"d": ["MD", "MBA", "Master of Science", None, "Geologia"]})
+    out = df.select(r_case_when(regole, pl.col("d"), pl.lit("Other")).alias("v"))["v"].to_list()
+    assert out == ["PhD/Doctorate", "Master's", "Master's", "Other", "Other"]

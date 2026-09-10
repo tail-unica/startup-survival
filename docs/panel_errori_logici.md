@@ -282,7 +282,7 @@ darebbe finestre diverse per le stesse persone.
 **M5 — `DeltaStart = 0` per i founder.**
 Sovrascrive la data di inizio reale: si assume che un founder ci sia dal primo
 giorno. Ragionevole come euristica, ma cancella un dato che in alcuni casi
-c'era. *Da misurare:* su quante righe la `DeltaStart` originale era diversa da 0.
+c'era. *Misurato: 19.458 founder avevano una `DeltaStart` reale diversa da 0.*
 
 **M6 — `PermanenzaMedia` come imputazione.**
 Anche corretta per azienda (B5), imputare la fine di una permanenza con una
@@ -321,8 +321,8 @@ usata. `Major_Concentration` e `Field` sono intermedie della classificazione.
 Risultato: l'intera coorte di aziende fondate nel **2000** entra nel panel
 **senza nessun dato di team**, e siccome `preprocessing.py` scarta le righe con
 `Total_People` nullo, quella coorte **spa­risce silenziosamente** dal dataset
-finale. *Misurato: coorte 2000 con 0% di righe dotate di dati di team, contro
-circa il 67% delle coorti adiacenti.*
+finale. *Misurato: coorte 2000 con 0,0% di righe dotate di dati di team, contro
+l'87,1% del 2001 e l'88,2% del 2002.*
 
 **B7 — `paste(unique(Institute))` include i NA come testo**
 (`fix_institute_na_literal`). *Misurato: 390.544 righe del riferimento hanno un

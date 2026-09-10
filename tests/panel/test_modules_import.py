@@ -14,8 +14,8 @@ import importlib
 import pytest
 
 STAGE_MODULES = [
-    # stage1_company: migrated to build_panel.ipynb
-    "src.panel.stage2_team",
+    # stage1_company, stage2_team: migrated to build_panel.ipynb
+    "src.panel.expansions",
     "src.panel.stage3_relations",
     "src.panel.stage4_deals",
     "src.panel.stage5_final",

@@ -282,3 +282,23 @@ def r_seq(from_: pl.Expr, to: pl.Expr) -> pl.Expr:
         .then(pl.int_ranges(from_, to - 1, step=-1))
         .otherwise(pl.int_ranges(from_, to + 1))
     )
+
+
+def r_case_when(rules: list[tuple[str, str]], col: pl.Expr, otherwise) -> pl.Expr:
+    """A ``case_when`` chain of case-insensitive ``grepl`` tests.
+
+    R's ``case_when`` **short-circuits**: the first branch that matches wins
+    and the rest are never evaluated, so the order of the rules is part of the
+    logic. Reordering the education rules changes the classification — `"MD"`
+    appears in the PhD rule and `"Master"` in the next one, so an `"MD"` never
+    reaches `Master's`.
+
+    A null input matches nothing and falls through to `otherwise`, which is
+    what R's ``grepl(NA, ...)`` returning FALSE does.
+    """
+    expr = pl.when(col.str.contains(f"(?i){rules[0][0]}").fill_null(False)).then(
+        pl.lit(rules[0][1])
+    )
+    for pattern, value in rules[1:]:
+        expr = expr.when(col.str.contains(f"(?i){pattern}").fill_null(False)).then(pl.lit(value))
+    return expr.otherwise(otherwise)
