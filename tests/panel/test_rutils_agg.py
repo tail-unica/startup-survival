@@ -125,3 +125,15 @@ def test_r_cum_sum_poisons_the_rest_of_the_group():
     df = pl.DataFrame({"g": ["a"] * 4, "x": [1.0, None, 3.0, 4.0]})
     out = df.with_columns(r_cum_sum(pl.col("x")).over("g").alias("c"))
     assert out["c"].to_list() == [1.0, None, None, None]
+
+
+def test_r_seq_is_inclusive_and_counts_down_when_the_end_precedes_the_start():
+    from src.panel.rutils import r_seq
+
+    df = pl.DataFrame({"da": [2010, 2010, 2010], "a": [2013, 2010, 2008]})
+    out = df.select(r_seq(pl.col("da"), pl.col("a")).alias("s"))["s"].to_list()
+    assert out == [
+        [2010, 2011, 2012, 2013],  # crescente, estremi inclusi
+        [2010],  # un solo anno
+        [2010, 2009, 2008],  # R conta all'indietro: bug B6
+    ]

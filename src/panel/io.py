@@ -34,6 +34,18 @@ RAW_ROW_COUNTS: dict[str, int] = {
 }
 
 
+#: The five `Company.csv` date columns that feed MaxYear. Shared because two
+#: places compute a MaxYear from them — the panel skeleton and the competitor
+#: activity windows — and if the two lists drift the two MaxYear disagree.
+COMPANY_DATE_COLUMNS = [
+    "CompanyFinancingStatusDate",
+    "BusinessStatusDate",
+    "OwnershipStatusDate",
+    "FirstFinancingDate",
+    "LastKnownValuationDate",
+]
+
+
 def scan_raw(cfg: PanelConfig, table: str, columns: list[str]) -> pl.LazyFrame:
     """Lazy scan of one raw table, projected to `columns`, all String."""
     return pl.scan_csv(

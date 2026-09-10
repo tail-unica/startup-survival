@@ -8,6 +8,13 @@ be re-run without redoing the ones before it.
 Six of the stages have a reference file to check against; `--verify` runs those
 checks and stops at the first one that fails.
 
+**Phases already migrated to `build_panel.ipynb` are not here.** As the
+review moves through the pipeline the notebook becomes the only place that
+stage's code lives, and this script shrinks; it will be deleted when the last
+phase migrates. A stage missing from STAGES therefore needs its parquet to
+already exist in data/interim/, produced by running that phase in the
+notebook.
+
     uv run python scripts/build_panel.py
     uv run python scripts/build_panel.py --verify
     uv run python scripts/build_panel.py --from 4          # resume at stage 4
@@ -37,7 +44,7 @@ from src.panel.config import PanelConfig  # noqa: E402
 #: through stage 6; a subprocess per stage hands the memory back every time,
 #: and the stages already communicate through parquet files rather than memory.
 STAGES = [
-    (1, "company e affiliate", "stage1_company", "run", []),
+    # fase 1: migrata in build_panel.ipynb
     (2, "tabella persona-azienda", "stage2_team", "run_db3", ["A"]),
     (2, "panel del team", "stage2_team", "run_panel", []),
     (3, "competitor", "stage3_relations", "run_competitors", ["B"]),

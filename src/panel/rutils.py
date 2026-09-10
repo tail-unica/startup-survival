@@ -264,3 +264,21 @@ def r_cum_sum(col: pl.Expr) -> pl.Expr:
     """
     poisoned = col.is_null().cast(pl.Int8).cum_max().cast(pl.Boolean)
     return pl.when(poisoned).then(None).otherwise(col.fill_null(0).cum_sum())
+
+
+def r_seq(from_: pl.Expr, to: pl.Expr) -> pl.Expr:
+    """``seq(from, to)`` as R computes it: inclusive, and **counting down**
+    when ``to < from``.
+
+    ``seq(2010, 2008)`` is ``c(2010, 2009, 2008)``, not an empty vector. Used
+    to expand a company into one row per year: where a dirty date leaves
+    ``MaxYear`` before ``YearFounded`` the sequence runs backwards and yields
+    negative ages, which is bug B6 — 245 rows over 106 companies.
+
+    Returns a list expression; the caller explodes it.
+    """
+    return (
+        pl.when(to < from_)
+        .then(pl.int_ranges(from_, to - 1, step=-1))
+        .otherwise(pl.int_ranges(from_, to + 1))
+    )

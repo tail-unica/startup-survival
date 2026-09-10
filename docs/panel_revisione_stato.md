@@ -1,6 +1,6 @@
 # Panel — stato della revisione fase per fase
 
-Ultimo aggiornamento: 2026-09-10
+Ultimo aggiornamento: 2026-09-10 (fase 1 inlinata, in attesa di revisione)
 
 Questo file è il punto di ripresa. Se la sessione di lavoro si interrompe,
 basta questo file più `git log` per riprendere senza ricostruire niente.
@@ -56,7 +56,7 @@ Una fase alla volta, in ordine di pipeline (1 → 7). Per ciascuna:
 
 | fase | modulo | nel notebook | stato |
 |---|---|---|---|
-| 1 — aziende, affiliate, scheletro | `stage1_company.py` | no | **prossima** |
+| 1 — aziende, affiliate, scheletro | *cancellato* | **sì**, blocchi 1.1–1.10 | **in revisione** |
 | 2a — tabella persona-azienda | `stage2_team.py` | no | da fare |
 | 2b — colonne di team | `stage2_team.py` | no | da fare |
 | 3a — competitor | `stage3_relations.py` | no | da fare |
@@ -67,8 +67,20 @@ Una fase alla volta, in ordine di pipeline (1 → 7). Per ciascuna:
 | 7 — competitor temporizzati | `stage7_competitors.py` | no | da fare |
 
 Punto di partenza: la traduzione è completa e verificata. Sei checkpoint,
-tutti verdi, `uv run python scripts/build_panel.py --verify` in circa 8
-minuti. Nessuna fase è ancora stata rivista.
+tutti verdi, in circa 8 minuti.
+
+**Fase 1** — inlinata in dieci blocchi (1.1 lettura e segnaposto NA, 1.2 flag
+di presenza, 1.3 date e numeri, 1.4 `FiscalDate`, 1.5 `db1` non filtrato, 1.6
+affiliati, 1.7 join e flag `Has_*`, 1.8 `MaxYear` e scheletro, 1.9 variabili
+time-varying, 1.10 selezione, filtro e scrittura). Modulo
+`src/panel/stage1_company.py` cancellato; `seq()` di R è diventata
+`rutils.r_seq` col suo test, e le cinque colonne data sono passate in
+`io.COMPANY_DATE_COLUMNS` perché servono anche alla fase 7 e due liste che
+divergono darebbero due `MaxYear` diversi.
+Riesecuzione da zero: `db_master_1` a 116.920 righe, **28 colonne su 28
+identiche** al riferimento, i 245 `Delta` negativi su 106 aziende del bug B6 al
+loro posto, e il checkpoint A ancora verde a valle. In attesa della revisione
+di Giulio.
 
 ## Decisioni aperte
 

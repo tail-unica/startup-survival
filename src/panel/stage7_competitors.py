@@ -27,9 +27,9 @@ from __future__ import annotations
 import polars as pl
 
 from src.panel.config import PanelConfig
+from src.panel.io import COMPANY_DATE_COLUMNS as DATE_COLUMNS
 from src.panel.io import read_raw, to_num
 from src.panel.rutils import R_NA_NAN, as_na, parse_date_r
-from src.panel.stage1_company import DATE_COLUMNS
 
 COMPETITOR_COLUMNS = ["N_Competitors", "Same_Country", "SimilarityScoreMean"]
 DROPPED = ["N_Europe", "N_Outside_Europe"]
