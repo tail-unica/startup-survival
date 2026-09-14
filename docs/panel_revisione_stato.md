@@ -1,7 +1,7 @@
 # Panel — stato della revisione fase per fase
 
-Ultimo aggiornamento: 2026-09-11 (catalogo errori riverificato e misurato;
-si parte con le correzioni, dalla fase 1)
+Ultimo aggiornamento: 2026-09-14 (fase 2 del notebook leggero: board team,
+finestre di presenza, lunghezza del panel)
 
 Questo file è il punto di ripresa. Se la sessione di lavoro si interrompe,
 basta questo file più `git log` per riprendere senza ricostruire niente.
@@ -85,6 +85,11 @@ sono mosse e su quante righe. Se un checkpoint diventa rosso senza che tu
 l'abbia voluto, e' un errore di implementazione e non un effetto della
 correzione.
 
+> **Aggiornamento 2026-09-14.** La regola dei flag vale per il notebook
+> completo, che e' congelato. Nel **leggero** le correzioni si scrivono
+> direttamente nel codice, senza flag, e il loro effetto misurato si registra
+> in questo file.
+
 ## Le correzioni, fase per fase
 
 Si riparte dall'inizio della pipeline e si corregge ogni errore quando si
@@ -96,7 +101,9 @@ Sul notebook **leggero**, e in ordine di pipeline.
 | fase | voci da affrontare | stato |
 |---|---|---|
 | 1 | **B6 `seq()` all'indietro** | **fatto** (2026-09-11) |
-| 2a | **B9** (misurato: 3 celle, nessuna modifica) · B5 (+ arrotondamento) · B10 · M4, M5 | B9 chiusa |
+| 2a | **B9** deduplica · **B5** permanenza media · **B10** `Is_Out` · **M4** fine 2024 · **M6** | **fatto** (2026-09-14) |
+| 2a | M5 founder a eta' zero | da fare |
+| 2a-2b | **T17** full join · **M3** `MaxYear` come fine del panel | **fatto** (2026-09-14): taglio e left join |
 | 2b | **B1 soglia** | **fatto** (2026-09-11) |
 | 2b | B7 `Institute` con "NA" · M8 | da fare |
 | 4 | **B1 soglia, seconda occorrenza** | **fatto** (2026-09-11) |
@@ -184,13 +191,15 @@ gia' dimostrata e registrata qui.
 
 | | valore |
 |---|---:|
-| righe | 880.473 |
-| aziende | 116.313 |
+| righe | 802.193 |
+| aziende | 116.312 |
 | colonne | 53 |
-| righe con dati di team | 816.297 |
-| righe con `GrowthStageGroup` | 637.043 |
+| righe con dati di team | 749.892 |
+| righe con `GrowthStageGroup` | 561.195 |
 | righe con `Age < 0` | 0 |
-| tempo di esecuzione | 97 s, picco 2,27 GB |
+| tempo di esecuzione | 108 s, picco 1,76 GB |
+
+*Aggiornato il 2026-09-14, dopo le correzioni della fase 2 (registro qui sotto).*
 
 **Prossimo passo: riprendere le correzioni dal catalogo**, in ordine di
 pipeline, sul notebook leggero. Le voci ancora aperte che lo riguardano sono
@@ -201,7 +210,7 @@ pipeline, sul notebook leggero. Le voci ancora aperte che lo riguardano sono
 | celle di codice | 91 | **45** |
 | CSV letti | 13 | **9** |
 | colonne di `Company.csv` | 39 | **11** |
-| colonne di `db3` | 54 | **22** |
+| colonne di `db3` | 54 | **19** |
 | aggregati di team | 23 | **13** |
 | colonne del panel | 117 | **53** |
 | tempo di esecuzione | ~8 min | **72 s** |
@@ -231,6 +240,61 @@ di iniziare. **Comportamento identico su entrambi i rami**, verificato.
 
 Flag **spento** per default, come da accordo.
 
+### Registro: fase 2 del leggero, 2026-09-14
+
+Tutte senza flag, scritte direttamente in `build_panel_light.ipynb`.
+
+1. **Solo le aziende dello scheletro (2a.1).** Si leggono 466.312 incarichi su
+   535.568. `YearFounded` e l'ultimo anno di vita arrivano dallo scheletro:
+   `db1` e la cella 1.3 sono eliminate. Effetto collaterale: la
+   standardizzazione di `WorkExperienceIndex` e' calcolata su queste persone.
+2. **Deduplica del board team (2a.1), sostituisce B9.**
+   - *Stesso incarico* (stessa coppia e stesso titolo, 158 coppie): `IsCurrent`
+     Yes se una riga lo e'; `EndDate` nulla se la riga fusa e' Yes; altrimenti
+     vale la data della riga con `LastUpdated` piu' recente fra quelle che ne
+     hanno una, e a parita' di `LastUpdated` l'intervallo piu' ampio.
+   - *Ruoli diversi* (293 righe fuse): unione dei periodi. `StartDate` nulla se
+     un ruolo non ha inizio (quindi dalla fondazione), altrimenti la piu'
+     vecchia; `EndDate` nulla se un ruolo e' Yes o non ha fine, altrimenti la
+     piu' recente; titoli concatenati, cosi' un founder resta founder (nell'R
+     55 coppie su 713 lo perdevano).
+   - Limite accettato: 2 persone e 5 anni-azienda con un buco fra due ruoli
+     risultano presenti anche negli anni scoperti. Scartata l'alternativa dei
+     ruoli separati fino all'espansione (piu' codice in 2b.2 e 5.6).
+3. **`EndDate` mancante → 31/12 dell'ultimo anno di vita (2a.10)**, qualunque
+   sia `IsCurrent`: 379.728 righe su 462.287. Chiude B5, M4, M6 e B10 (la
+   tabella delle aziende fallite non serve piu'). Costo misurato: `Total_People`
+   circa +7% rispetto alla media globale. Negli anni del panel la persona c'e'
+   comunque, quindi la fine imputata non porta l'esito futuro dell'azienda.
+   Scartate: la media per azienda (usa le permanenze future dei colleghi) e
+   «solo l'anno di inizio» (`Total_People` −21%).
+4. **Taglio all'ultimo anno di vita (2a.10) e left join (2b.3)**, chiude T17 e
+   decide M3. Ruoli iniziati dopo l'ultimo anno scartati (3.574), `EndDate`
+   esplicite successive tagliate (3.502). Motivo: dopo `MaxYear` la fase 1 non
+   ha `OwnershipStatus`, quindi quegli anni non possono dare un target. Nell'R
+   il full join aggiungeva 95.132 righe in 39.439 aziende (in 372 lo stadio
+   cambiava proprio li'), spostando in avanti `LastAge` e l'eta' a cui si legge
+   il target solo per le aziende con un team datato. Conseguenze: i 2.097 deal
+   datati dopo `MaxYear` non si agganciano; sparisce l'azienda fantasma
+   `807550-48`, che esisteva solo per il full join.
+5. **Diagnosi di M3 registrata:** i ruoli dopo `MaxYear` stanno quasi tutti in
+   aziende attive (2.272 «Privately Held» su 2.604) con la scheda aziendale non
+   aggiornata. Allargare `MaxYear` con le date del board e dei deal resta
+   un'alternativa possibile, non adottata.
+
+Effetto sul panel finale:
+
+| | prima | dopo |
+|---|---:|---:|
+| righe | 880.473 | 802.193 |
+| aziende | 116.313 | 116.312 |
+| righe con dati di team | 816.297 | 749.892 |
+| righe con `GrowthStageGroup` | 637.043 | 561.195 |
+
+**Obiettivi successivi dichiarati:** temporizzare le variabili di team anno per
+anno (M0) mantenendo la stessa costruzione; gli attributi datati andranno
+agganciati per (persona, anno) dopo l'espansione della fase 2b.
+
 ## Decisioni prese
 
 1. **M11 — l'imputazione RandomForest è eliminata**, non sospesa. Il modello è
@@ -242,6 +306,11 @@ Flag **spento** per default, come da accordo.
    `src/preprocessing.py` è `TotalRaised`.** La sostituzione si fa **dopo**
    aver finito di correggere il notebook, in un passaggio solo: comporta
    rigenerare `data/processed/` e tutti i run.
+
+3. **2026-09-14 — fase 2 del leggero**: deduplica, `EndDate` all'ultimo anno
+   di vita, taglio del panel a `MaxYear`. Dettaglio e numeri nel registro qui
+   sopra. **I dataset in `data/processed/` non sono stati rigenerati**: il
+   panel ha 78.280 righe in meno e il target si legge su un `LastAge` diverso.
 
 ## Decisioni aperte
 

@@ -1,6 +1,6 @@
 # Panel — errori logici, differenze implementative, peso morto
 
-Data: 2026-09-10 · riverificato il 2026-09-11
+Data: 2026-09-10 · riverificato il 2026-09-11 · fase 2 chiusa nel leggero il 2026-09-14
 Stato: documento di lavoro per la revisione fase per fase
 
 Questo file è il registro di tutto ciò che, nella pipeline di costruzione del
@@ -71,6 +71,17 @@ il target. **Non va portato.** Di conseguenza le sette colonne `*_Est` non
 esistono più in nessun output, e la colonna che le sostituisce a valle è
 **`TotalRaised`**: `src/preprocessing.py` leggerà quella al posto di
 `TotalRaised_Est` una volta finita la correzione del notebook. Vedi M13.
+
+**2026-09-14 — fase 2 del notebook leggero, corretta senza flag.** Dettaglio e
+numeri in `docs/panel_revisione_stato.md`, «Registro: fase 2 del leggero».
+- **B9** sostituita da una deduplica con regole esplicite: stesso incarico
+  fuso scegliendo le date con `LastUpdated`, ruoli diversi fusi nell'unione dei
+  periodi. Una riga per coppia.
+- **B5, M4, M6** chiuse: ogni `EndDate` mancante diventa l'ultimo anno di vita
+  dell'azienda. **B10** sparisce con la tabella delle aziende fallite.
+- **T17** chiusa e **M3** decisa: finestre tagliate all'ultimo anno di vita,
+  left join in 2b.3. Il panel coincide con lo scheletro.
+- In `db3` entrano solo le aziende dello scheletro.
 
 ---
 
@@ -248,7 +259,7 @@ Alla riga 448 l'R aggancia `YearFounded` alla tabella del team prendendolo da
 
 ### Scelte discutibili
 
-**M3 — `MaxYear` come limite del panel.**
+**M3 — `MaxYear` come limite del panel.** — *decisa il 2026-09-14: il panel si ferma a `MaxYear` anche per il team; allargarlo con le date del board e dei deal resta un'alternativa non adottata*
 `MaxYear` è l'anno più recente fra sei date disponibili, cioè **l'ultimo anno
 con dati**. Il panel di un'azienda finisce lì. Un'azienda ben coperta da
 PitchBook ha quindi un panel più lungo di una coperta male, a parità di vita
@@ -292,7 +303,7 @@ Confronta `Field` con `"Other/Unknown"`, mentre `Field` produce `"Other"` e mai
 inutilizzabile. Non è fra le 47 feature, quindi non ha contaminato i risultati
 pubblicati.
 
-**B5 — `PermanenzaMedia` è un solo numero globale**
+**B5 — `PermanenzaMedia` è un solo numero globale** — *chiusa il 2026-09-14 nel notebook leggero, vedi «Decisioni prese»*
 (`fix_permanenza_media_per_company`). L'R la calcola con un `summarise` senza
 `group_by`, nonostante il commento dichiari «per ciascuna CompanyID»: è la
 permanenza media su tutto il dataset, usata per imputare l'`EndDate` di
@@ -320,7 +331,7 @@ Sistematico ma piccolo.
 > Va sistemato **prima** di accendere il flag, altrimenti il ramo corretto
 > arrotonda diversamente dal ramo di riferimento senza farlo notare.
 
-**B9 — due anomalie nella deduplica** (`fix_dup_coalesce`).
+**B9 — due anomalie nella deduplica** (`fix_dup_coalesce`) — *chiusa il 2026-09-14 nel notebook leggero, vedi «Decisioni prese»*.
 I duplicati si riselezionano filtrando per `PersonID` invece che per la coppia
 `(CompanyID, PersonID)`, e `coalesce(first(x), last(x))` non vede un valore
 presente solo in una riga intermedia.
@@ -370,7 +381,7 @@ ovviamente migliore — `"CFO & Board Member"` è più informativo di
 **Nessuna modifica al codice.** Il flag fa già la cosa giusta; quello che
 mancava era sapere che l'effetto è di tre celle.
 
-**B10 — `Is_Out` resta NA per le aziende non fallite** (`fix_is_out_na`).
+**B10 — `Is_Out` resta NA per le aziende non fallite** (`fix_is_out_na`) — *chiusa il 2026-09-14 nel notebook leggero, vedi «Decisioni prese»*.
 Dopo il left join con `ownership_out`, la condizione `Is_Out == FALSE` vale NA
 e **neutralizza** una delle imputazioni di `EndDate`. *Misurato: 471.770 righe
 con `Is_Out` nullo.* Un catch-all successivo recupera i casi, quindi il bug si
@@ -432,7 +443,7 @@ unisce su tutte le colonne in comune. Qui è solo `CompanyID`, ma è fragile: se
 
 ### Scelte discutibili
 
-**M4 — `EndDate` imputata a `2024-12-31`.**
+**M4 — `EndDate` imputata a `2024-12-31`.** — *chiusa il 2026-09-14 nel notebook leggero, vedi «Decisioni prese»*
 Chi ha `IsCurrent == "Yes"` riceve come fine permanenza una data fissa legata
 al **vintage dell'estrazione**. Rieseguire la pipeline su un download del 2026
 darebbe finestre diverse per le stesse persone.
@@ -442,7 +453,7 @@ Sovrascrive la data di inizio reale: si assume che un founder ci sia dal primo
 giorno. Ragionevole come euristica, ma cancella un dato che in alcuni casi
 c'era. *Misurato: 19.458 founder avevano una `DeltaStart` reale diversa da 0.*
 
-**M6 — `PermanenzaMedia` come imputazione.**
+**M6 — `PermanenzaMedia` come imputazione.** — *chiusa il 2026-09-14 nel notebook leggero, vedi «Decisioni prese»*
 Anche corretta per azienda (B5), imputare la fine di una permanenza con una
 media è un'assunzione forte, e determina **in quali anni una persona viene
 contata**: tocca tutte le feature di team.
@@ -530,7 +541,7 @@ sull'anno di fondazione elimina la riga **prima** che l'aggregazione la veda.
 > sottoinsieme: `> 2000` dà 90.431 righe espanse e **0 fantasma**, `> 1999` ne
 > dà 198.357 e **0 fantasma**.* Correggere B1 è sicuro su questo fronte.
 
-**T17 — `full_join`, non `left_join`.**
+**T17 — `full_join`, non `left_join`.** — *chiusa il 2026-09-14 nel notebook leggero, vedi «Decisioni prese»*
 Il panel del team può contenere anni-azienda che lo scheletro non ha. È così
 che si arriva alle 1.001.625 righe: con un left join sarebbero meno.
 
