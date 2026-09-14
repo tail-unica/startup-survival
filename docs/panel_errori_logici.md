@@ -1,6 +1,6 @@
 # Panel — errori logici, differenze implementative, peso morto
 
-Data: 2026-09-10
+Data: 2026-09-10 · riverificato il 2026-09-11
 Stato: documento di lavoro per la revisione fase per fase
 
 Questo file è il registro di tutto ciò che, nella pipeline di costruzione del
@@ -35,6 +35,43 @@ corretto, e per ciascuna correzione si può dire quante righe ha spostato.
 Le **eliminazioni** sono l'eccezione: una colonna morta si cancella, non si
 mette dietro a un flag. Ma serve prima la prova che nessuno la legge.
 
+## Fin dove arriva un difetto: il cancello 2008–2017
+
+Ogni voce di questo file dichiara **fin dove si propaga**, perché non tutto
+quello che sporca il panel tocca i risultati. Il percorso è:
+
+```
+panel.parquet            882.324 righe x 117 colonne   (una riga = azienda-anno)
+  └─ build_windowed_dataset
+        filtri: StartingAge <= 2  e  2010 <= YearFounded + StartingAge <= 2017
+  └─ preprocess_dataset
+        dataset_window.csv       30.300 righe x 47 colonne  (una riga = azienda)
+```
+
+*Misurato su `data/processed/dataset_window.csv`: gli anni di fondazione
+presenti vanno da **2008 a 2017**, senza eccezioni.* Un difetto che colpisce
+solo aziende fuori da quella finestra sporca il panel ma **non ha toccato un
+solo numero dei risultati pubblicati**. Dove rilevante, ogni voce lo dice.
+
+Le tre destinazioni possibili, usate come etichetta nel riepilogo finale:
+
+| etichetta | significato |
+|---|---|
+| **arriva alle 47** | la colonna difettosa è una feature dei modelli |
+| **arriva al panel** | resta in `panel.parquet` ma muore nel preprocessing |
+| **muore prima** | una fase successiva la sovrascrive o la elimina |
+
+## Decisioni prese
+
+**2026-09-11 — l'imputazione RandomForest è eliminata, non sospesa.**
+Il modello di `1_Arrange_DB.R:1037-1119` è sbagliato alla radice (vedi M11):
+nessun `set.seed`, addestrato su tutti gli anni, fittato prima di qualsiasi
+split, e con il tipo di deal fra i predittori quando il tipo di deal determina
+il target. **Non va portato.** Di conseguenza le sette colonne `*_Est` non
+esistono più in nessun output, e la colonna che le sostituisce a valle è
+**`TotalRaised`**: `src/preprocessing.py` leggerà quella al posto di
+`TotalRaised_Est` una volta finita la correzione del notebook. Vedi M13.
+
 ---
 
 ## Trasversale — la voce più importante
@@ -62,18 +99,39 @@ dopo il 2010. Vale per le colonne di team della fase 2b (`WorkExp_Idx_Mean`,
 `RolesCount_Max`, `RolesCount_Mean`, `Avg_Earliest_Year`, `Positions`,
 `BoardSeats`, `OtherRoles`) e per tutte e 18 le colonne `*_CEO` della fase 5.
 
-Nell'elenco delle 47 feature dei modelli ci sono `WorkExp_Idx_Mean`,
-`Highest_Degree_Mean`, `Avg_Earliest_Year` e `WorkExperienceIndex_CEO`.
+**Propagazione: arriva alle 47.** Le feature contaminate sono **tre**:
+`WorkExp_Idx_Mean`, `Highest_Degree_Mean`, `WorkExperienceIndex_CEO`. Più
+`HasTop50Institute` in modo debole, perché un ateneo frequentato è quasi sempre
+precedente alla startup.
+
+Due precisazioni rispetto alla prima stesura, che ne elencava quattro:
+
+- **`Highest_Degree_CEO` non è fra le 47.** *Misurato: è nullo sul 64,7% del
+  panel finale*, quindi `handle_missing_values` lo scarta con la soglia del 40%
+  di mancanti. È selezionato in `preprocess_dataset` ma non sopravvive.
+- **`Avg_Earliest_Year` non è look-ahead.** È l'anno di laurea **più antico**
+  della persona: guarda indietro, non avanti.
 
 **Perché la segnalo per prima:** l'articolo è sul look-ahead bias. Questa è
 informazione dal futuro che entra nelle feature, e non passa da nessuno dei
 dieci bug censiti — è nel disegno della pipeline, non in un suo difetto.
 
-**Cosa comporterebbe correggerla:** `PersonPositionRelation` e
-`PersonEducationRelation` hanno delle date. In principio si può ricostruire il
-conteggio delle posizioni *alla data*, invece di prendere il totale corrente.
-È l'intervento più costoso di tutta la lista e va valutato a sé: **da
-misurare** quanto cambierebbe.
+**Cosa comporterebbe correggerla.** Le fonti datate esistono già
+nell'estrazione, *verificato sugli header*:
+
+```
+PersonPositionRelation.csv  PersonID, EntityID, FullTitle, PositionLevel,
+                            IsCurrent, StartDate, EndDate
+PersonEducationRelation.csv PersonID, Degree, Major_Concentration, Institute,
+                            GraduatingYear
+```
+
+Con `StartDate`/`EndDate` si contano le posizioni **attive all'anno Y** invece
+del totale corrente; con `GraduatingYear` si prende il titolo più alto
+**conseguito entro l'anno Y**. `Person.csv` invece non ha date: i suoi otto
+contatori sono fotografie e vanno abbandonati, non corretti. È l'intervento più
+costoso di tutta la lista e va valutato a sé: **da misurare** quanto
+cambierebbe.
 
 ### M1 — `GrowthStage` mescola stato attuale e storia
 
@@ -88,9 +146,24 @@ La cascata che definisce `GrowthStage` — e quindi il target — ha due fonti:
 Nelle prime tre condizioni la prima fonte vince con un `|`. Va guardata con
 attenzione: `OwnershipStatus` è nullo su quasi tutte le righe del panel (è
 agganciato solo all'anno della sua data), quindi nella pratica decide poco, ma
-dove decide sta proiettando lo stato di oggi su un anno passato. **Da
-misurare:** su quante righe la condizione è vera per via di `OwnershipStatus` e
-falsa per via dei flag.
+dove decide sta proiettando lo stato di oggi su un anno passato.
+
+*Misurato su `db_master_2`: la condizione è vera per via di `OwnershipStatus` e
+falsa per via dei flag su **2.764 righe su 1.001.625**, una per azienda —
+`OwnershipStatus` è valorizzato su 116.619 righe in tutto.*
+
+**Propagazione: arriva al panel, in modo indiretto ma reale.** Quelle 2.764
+righe ricevono uno stadio terminale, e alla fase 6 il troncamento taglia
+l'azienda lì. *Misurato: le aziende troncate sono 39.622 in tutto, e **2.764 di
+queste sono troncate su una riga decisa dal solo `OwnershipStatus`**, con
+**9.620 righe eliminate**.*
+
+**Attenuante, e va detta.** `OwnershipStatus` è agganciato all'anno della
+**propria** data (`OwnershipStatusDate`), non proiettato su tutti gli anni.
+Per «Out of Business» o «Acquired/Merged» quella data è, di fatto, la data
+dell'evento: il salto temporale è quasi nullo. Il problema resta di principio —
+una fonte di stato corrente dentro una colonna storica — ma è più piccolo di
+quanto la prima stesura lasciasse intendere.
 
 ### M2 — il vintage dell'estrazione competitor
 
@@ -119,8 +192,29 @@ pubblicati non sono riproducibili su quelle tre feature con i dati presenti.
 **B6 — `seq()` conta all'indietro** (`fix_negative_delta`).
 Se `MaxYear < YearFounded`, `seq(2010, 2008)` produce `2010, 2009, 2008` e
 quindi `Delta` **negativi**: anni-azienda precedenti alla fondazione.
-*Misurato: 245 righe su 106 aziende.* Impatto trascurabile in volume, ma sono
-righe prive di senso.
+
+`MaxYear` è il più recente fra sei date disponibili in `Company.csv`. Per un
+pugno di aziende i dati sono sporchi — per esempio una data di bilancio del
+2008 su un'azienda registrata come fondata nel 2010 — e la sequenza parte
+dopo il suo punto d'arrivo.
+
+**Propagazione: arriva al panel, non arriva alle 47.** *Misurato lungo la
+catena:*
+
+| tappa | righe con età < 0 | aziende |
+|---|---:|---:|
+| scheletro (fase 1) | 245 | 106 |
+| `panel.parquet` (fase 7) | **186** | **90** |
+| `dataset_window.csv` | 0 | 0 |
+
+*Su tutte le 186 righe `Total_People` e `GrowthStageGroup` sono nulli*, quindi
+il preprocessing le scarta. Impatto nullo sui modelli; nel panel restano 186
+righe che affermano che un'azienda esisteva prima di essere fondata, e
+qualunque statistica descrittiva sul panel le include.
+
+**La correzione dietro il flag** sostituisce la sequenza all'indietro con
+**una riga sola**, quella dell'anno di fondazione, invece di scartare
+l'azienda: quelle 90 aziende restano nel panel con un panel lungo 1.
 
 ### Trappole di traduzione
 
@@ -202,15 +296,73 @@ pubblicati.
 (`fix_permanenza_media_per_company`). L'R la calcola con un `summarise` senza
 `group_by`, nonostante il commento dichiari «per ciascuna CompanyID»: è la
 permanenza media su tutto il dataset, usata per imputare l'`EndDate` di
-chiunque. *Misurato: con la media per azienda il `DeltaEnd` medio passa da
-11,57 a 12,04 anni, le righe con dati di team da 885.142 a 892.534 (+0,84%),
-`Total_People` +0,91%, `Total_Founders` +1,23%.* Sistematico ma piccolo.
+chiunque. *Misurato: quel numero vale **8 anni** (media grezza 7,974556).* Ogni
+persona di cui non si sa quando ha lasciato l'azienda riceve «entrata + 8
+anni», che sia una startup morta in due anni o una sopravvissuta quindici.
+
+Quella data decide **in quali anni una persona viene contata nel team**, quindi
+tocca tutte le colonne della fase 2b. *Misurato: con la media per azienda il
+`DeltaEnd` medio passa da 11,57 a 12,04 anni, le righe con dati di team da
+885.142 a 892.534 (+0,84%), `Total_People` +0,91%, `Total_Founders` +1,23%.*
+Sistematico ma piccolo.
+
+> **⚠ Il ramo corretto ha un difetto suo: l'arrotondamento.**
+> `round()` di R arrotonda **al pari** (`round(7.5)` è 8, `round(8.5)` è 8);
+> `.round(0)` di polars arrotonda per eccesso (8 e 9). Con la media globale non
+> si nota, perché 7,97 non è un pareggio. Con la media **per azienda** i
+> pareggi diventano normali — due persone con 7 e 8 anni fanno esattamente 7,5.
+> Va sistemato **prima** di accendere il flag, altrimenti il ramo corretto
+> arrotonda diversamente dal ramo di riferimento senza farlo notare.
 
 **B9 — due anomalie nella deduplica** (`fix_dup_coalesce`).
 I duplicati si riselezionano filtrando per `PersonID` invece che per la coppia
 `(CompanyID, PersonID)`, e `coalesce(first(x), last(x))` non vede un valore
-presente solo in una riga intermedia. Il primo allarga inutilmente il lavoro,
-il secondo può perdere un dato con tre o più duplicati.
+presente solo in una riga intermedia.
+
+*Misurato sull'estrazione (2026-09-11):* 535.568 righe grezze, 534.851 coppie
+uniche, **713 coppie duplicate** su 1.430 righe.
+
+- **Anomalia 1 — il filtro per `PersonID`.** Tira dentro all'aggregazione anche
+  le righe di una persona duplicata *in un'altra azienda*: **2.175 righe invece
+  di 1.430, cioè 745 elaborate per niente**. *Verificato isolandola: il
+  contenuto di `db3` è **identico**; cambia solo l'**ordine** delle righe —
+  1.171 coppie su 272 aziende.*
+
+  Quell'ordine arriva alla fase 2b, dove `Institute` è un `paste(unique(...))`.
+  *Misurato: la stringa `Institute` cambia su **155 aziende**, e in **tutte e
+  155 cambia solo l'ordine**: l'insieme degli atenei è identico.* Il solo
+  consumatore di `Institute` è `get_top50_institute_flag`, che fa `split(";")`
+  e cerca per appartenenza: **l'ordine non porta informazione e il flag
+  `HasTop50Institute` non cambia mai**.
+
+  Quindi l'anomalia 1 è **inerte per i dati**. L'unica cosa che la rende non
+  rimovibile è che i checkpoint C–F confrontano `Institute` **come testo**
+  contro l'export R: toglierla li farebbe diventare rossi su quella colonna
+  senza che nulla di sostanziale sia cambiato. È un vincolo di prova di
+  fedeltà, non un vincolo di correttezza. Quando la fedeltà smette di essere
+  l'obiettivo, l'anomalia 1 si toglie senza pensarci.
+- **Anomalia 2 — `coalesce(first, last)`.** Serve almeno tre righe per la
+  stessa coppia. *Misurato: 709 coppie hanno 2 righe, **solo 4 ne hanno 3**.*
+
+*Effetto totale della correzione, verificato eseguendo i due rami e
+diffandoli: **3 celle su una sola riga**, su 534.851.* Una sola coppia,
+`186214-78 / 57142-36P`:
+
+| colonna | valori nelle tre righe | R tiene | corretto |
+|---|---|---|---|
+| `RepresentingName` | `[null, "Self", null]` | `null` | `"Self"` |
+| `RoleOnBoard` | `[null, "Board Member", "CFO & Board Member"]` | `"CFO & Board Member"` | `"Board Member"` |
+| `StartDate` | `[null, 2023-01-01, 2024-01-01]` | `2024-01-01` | `2023-01-01` |
+
+**Propagazione: una cella.** `RepresentingName` non è fra le nove colonne che
+`db3` seleziona. `RoleOnBoard` lo è ma non è letta da nessuno (X5). Resta
+`StartDate`, che guida `DeltaStart`: **una persona, in un'azienda, entra nel
+team un anno dopo.** E sulle altre due la versione «corretta» non è nemmeno
+ovviamente migliore — `"CFO & Board Member"` è più informativo di
+`"Board Member"`.
+
+**Nessuna modifica al codice.** Il flag fa già la cosa giusta; quello che
+mancava era sapere che l'effetto è di tre celle.
 
 **B10 — `Is_Out` resta NA per le aziende non fallite** (`fix_is_out_na`).
 Dopo il left join con `ownership_out`, la condizione `Is_Out == FALSE` vale NA
@@ -316,13 +468,33 @@ usata. `Major_Concentration` e `Field` sono intermedie della classificazione.
 ### Difetti riprodotti
 
 **B1 — la soglia di fondazione cambia** (`fix_founding_year_threshold`).
-**È il difetto più grave del registro.** La fase 1 filtra
-`YearFounded > 1999`; questa fase e la fase 4 filtrano `YearFounded > 2000`.
-Risultato: l'intera coorte di aziende fondate nel **2000** entra nel panel
-**senza nessun dato di team**, e siccome `preprocessing.py` scarta le righe con
-`Total_People` nullo, quella coorte **spa­risce silenziosamente** dal dataset
-finale. *Misurato: coorte 2000 con 0,0% di righe dotate di dati di team, contro
-l'87,1% del 2001 e l'88,2% del 2002.*
+La fase 1 filtra `YearFounded > 1999` (`1_Arrange_DB.R:236`); questa fase
+(`:566`) e la fase 4 (`:935`) filtrano `YearFounded > 2000`. Risultato:
+l'intera coorte di aziende fondate nel **2000** entra nel panel come un guscio
+vuoto — nello scheletro sì, con i dati di team e i deal no.
+
+*Misurato sul panel finale:*
+
+| coorte | righe | aziende | con dati di team | con `GrowthStage` |
+|---|---:|---:|---:|---:|
+| **2000** | 24.430 | 1.443 | **0,0%** | **0,0%** |
+| 2001 | 19.745 | 1.186 | 91,1% | 58,8% |
+| 2002 | 19.017 | 1.175 | 91,8% | 58,4% |
+
+Non è solo il team: senza deal non c'è niente che possa accendere
+`GrowthStage`. Sono **24.430 righe, il 2,77% del panel**, che non dicono nulla.
+
+> **Propagazione: muore prima delle 47. Correzione rispetto alla prima
+> stesura.** Questa voce era classificata come «il difetto più grave del
+> registro», con la motivazione che `preprocessing.py` scarta le righe a
+> `Total_People` nullo e la coorte sparisce dal dataset. È vero che sparisce,
+> ma **sarebbe sparita comunque**: il cancello 2008–2017 di
+> `build_windowed_dataset` esclude la coorte 2000 a monte. **B1 non ha toccato
+> nessun risultato pubblicato.** Resta un difetto di completezza del panel, e
+> diventa bloccante solo allargando la finestra temporale.
+
+*Correggendolo si recuperano 1.386 aziende su 1.443* (le altre 57 non hanno
+comunque nessuna persona in `CompanyBoardTeamRelation.csv`).
 
 **B7 — `paste(unique(Institute))` include i NA come testo**
 (`fix_institute_na_literal`). *Misurato: 390.544 righe del riferimento hanno un
@@ -341,9 +513,16 @@ L'aggregazione conta le persone con `.N`, che conterebbe anche la riga vuota
 prodotta da un join senza corrispondenze, dando `Total_People = 1` con tutti i
 campi della persona nulli. Non succede perché `YearFounded` arriva dal lato
 persona: per un anno-azienda che non ha trovato nessuno vale NA, e il filtro
-`> 2000` elimina la riga **prima** che l'aggregazione la veda. *Misurato: 0
-righe fantasma.* **Conseguenza da tenere presente: correggere B1 rimuove anche
-questa protezione**, e le righe fantasma potrebbero comparire.
+sull'anno di fondazione elimina la riga **prima** che l'aggregazione la veda.
+
+> **Correzione rispetto alla prima stesura.** Qui c'era scritto che correggere
+> B1 avrebbe rimosso questa protezione e fatto ricomparire le righe fantasma.
+> **È falso.** La protezione non dipende dal *valore* della soglia: dipende dal
+> fatto che `YearFounded` è **null** sulla riga non abbinata, e sia in R
+> (`filter`) sia in polars un confronto `> qualcosa` scarta i null comunque.
+> *Verificato eseguendo `expand_team` con entrambe le soglie sullo stesso
+> sottoinsieme: `> 2000` dà 90.431 righe espanse e **0 fantasma**, `> 1999` ne
+> dà 198.357 e **0 fantasma**.* Correggere B1 è sicuro su questo fronte.
 
 **T17 — `full_join`, non `left_join`.**
 Il panel del team può contenere anni-azienda che lo scheletro non ha. È così
@@ -359,7 +538,13 @@ niente.
 Usa `.N`, cioè conta anche le persone con genere ignoto. Se il genere è
 sconosciuto per metà del team, la quota di donne è **diluita verso il basso**
 invece di essere calcolata sui soli casi noti. `Percent_Females` è una delle 47
-feature. *Da misurare:* quanto è frequente il genere ignoto.
+feature.
+
+> **Declassata.** Era «da misurare», ed era in nona posizione nel riepilogo.
+> *Misurato su `db3`: `Gender` è nullo su **3.012 righe su 534.851 = 0,6%**
+> (449.943 Male, 81.896 Female).* La diluizione esiste su mezzo punto
+> percentuale di casi. **Fuori dal riepilogo per priorità**: resta qui come
+> nota di trasparenza, non come cosa da correggere.
 
 **M8 — founder e chiunque altro pesano uguale.**
 L'aggregazione mette sullo stesso piano i founder e ogni altro membro del board
@@ -383,17 +568,39 @@ arrivano.
 
 `1_Arrange_DB.R:681-708` · `src/panel/stage3_relations.py` · **CHECKPOINT B**
 
+> **⚠ Leggere prima di lavorare su questa fase: le sue sei colonne competitor
+> non arrivano al panel.** La fase 7 ne butta tre e le ricalcola anno per anno,
+> e ne elimina due:
+>
+> ```python
+> finale = panel.drop("N_Competitors", "Same_Country", "SimilarityScoreMean",
+>                     "N_Europe", "N_Outside_Europe")   # buttate
+>              .join(stat_concorrenti, ...)             # ricalcolate
+> ```
+>
+> *Verificato su `panel.parquet`: 117 colonne, `N_Europe` e `N_Outside_Europe`
+> assenti, `Same_Country` con **zero nulli**.* Sopravvive alla fase 3a solo
+> `SimilarityScoreMax`. Quindi **tutti i difetti di questa fase muoiono
+> prima delle 47**, e la fase esiste soltanto per far passare il checkpoint B.
+
 ### Difetti riprodotti
 
 **B4 — `any()` senza `na.rm`** (`fix_same_country_narm`).
 `Same_Country` restituisce NA quando nessun confronto è vero *e* almeno uno è
 mancante, invece di `False`. *Misurato: 1.809 aziende, l'1,55% di quelle con un
-aggregato competitor.* Poche, **ma `Same_Country` è una delle 47 feature**.
+aggregato competitor.*
+
+> **Declassato.** Era in sesta posizione con la motivazione «`Same_Country` è
+> una delle 47 feature». La feature esiste, ma è **quella della fase 7**, che
+> ha anche un significato diverso (vedi M21): era un booleano, è diventata un
+> conteggio. La colonna con il bug viene buttata. **Propagazione: muore
+> prima.** Fuori dal riepilogo per priorità.
 
 **B8 — `N_Europe` e `N_Outside_Europe` non sono simmetriche**
 (`fix_europe_asymmetry`). `N_Europe` somma su **tutte** le righe,
 `N_Outside_Europe` solo su quelle con similarità sopra 90. Non sono due facce
-dello stesso conteggio.
+dello stesso conteggio. **Propagazione: muore prima** — entrambe le colonne
+sono eliminate alla fase 7. Fuori dal riepilogo per priorità.
 
 ### Trappole di traduzione
 
@@ -431,11 +638,12 @@ panel `HQCountry` è NA, quindi il confronto è NA **per costruzione**.
 ### Candidati all'eliminazione
 
 **X11 — `N_Europe` e `N_Outside_Europe`.** Sono **eliminate alla fase 7** e non
-sono feature dei modelli. Conseguenza: **tutta la derivazione di
-`src/panel/data/europe.csv` e `scripts/derive_europe_mapping.py` esiste solo
-per far passare il checkpoint B.** È il candidato più netto della lista: se la
-fedeltà non è più l'obiettivo, spariscono ~100 righe di codice e un file di
-dati.
+sono feature dei modelli. *Verificato: assenti da `panel.parquet`.*
+Conseguenza: **tutta la derivazione di `src/panel/data/europe.csv` e
+`scripts/derive_europe_mapping.py` esiste solo per far passare il checkpoint
+B.** È il candidato più netto della lista: se la fedeltà non è più l'obiettivo,
+spariscono ~100 righe di codice e un file di dati. Insieme a X11 cadono anche
+B4 e B8, che sono difetti di colonne che nessuno legge.
 
 **X12 — `SimilarityScoreMax`.** Nel panel; *da confermare* se arriva alle 47.
 
@@ -466,9 +674,9 @@ no. Effetto su 1 riga.
 ### Candidati all'eliminazione
 
 **X13 — `N_News`.** *Misurato: l'estrazione contiene 1.858 news su 371 aziende;
-il riferimento ne conta 1.137 distribuite su 248 righe di panel.* `N_News` è
-quindi **zero sul 99,98% delle righe**: è di fatto una costante e non può
-portare informazione. Candidata forte.
+sul panel finale `N_News > 0` su **97 righe su 882.324 = 0,011%**.* È di fatto
+una costante e non può portare informazione. Non è nemmeno fra le 47.
+Candidata certa all'eliminazione, non «forte».
 
 **X14 — `EmployeeCount`.** *Misurato: valorizzata su 300.371 righe su
 1.001.625, il 30%.* **Non è peso morto**: la voce si chiude qui. Da 600.805
@@ -494,6 +702,10 @@ finisce in un gruppo nullo e **esce dal panel** al join.
 parcheggiando quei deal sull'anno zero dell'azienda e **inventando deal in
 7.335 anni-azienda**. *Misurato: 13.184 gruppi azienda con `Year_Delta` nullo
 in `deals_panel`.* Era l'unica divergenza di questa fase al primo tentativo.
+
+**La trappola è risolta, ma il comportamento riprodotto resta discutibile: vedi
+M25.** Nessuno dei due comportamenti — scartare il deal (R) o parcheggiarlo
+sull'anno zero (polars ingenuo) — è quello giusto.
 
 **T27 — tre semantiche di missing sullo stesso numero.**
 `TotalRaised` è `sum(na.rm = TRUE)` (un importo ignoto vale zero);
@@ -522,7 +734,7 @@ tutti i tipi di deal.
 
 ### Scelte discutibili — è la fase con più problemi
 
-**M11 — l'imputazione RandomForest, sospesa.**
+**M11 — l'imputazione RandomForest. ELIMINATA (decisione del 2026-09-11).**
 `1_Arrange_DB.R:1037-1119` addestra un `randomForest(ntree = 50)` **senza
 `set.seed`**: non è riproducibile nemmeno rieseguendo l'R. Ed è una fonte di
 look-ahead in un lavoro che denuncia il look-ahead:
@@ -540,8 +752,18 @@ massa della feature**; senza finestra circa 9.739 aziende su 30.300 (32,1%).*
 mancante e sinossi che parla di importo non dichiarato — sono **53.975 su
 332.818**, prima del filtro sui predittori completi. La spec ne stimava «al
 massimo 48.000» come limite superiore, ed era una sottostima.*
-**Non è portata.** Il commento `RF_SUSPENDED` in cima al modulo elenca le sette
-colonne che creava e dove.
+**Non è portata, e non va portata.** Non è più una sospensione in attesa di
+valutazione: il modello è sbagliato alla radice per i tre motivi qui sopra, e la
+decisione è di eliminarlo. Le sette colonne che creava —
+`TotalInvestedCapital_Est`, `TotalRaised_Est`, `TotalRaised_Est_NA`,
+`TotalRaised_Est_any` e le tre cumulate — **non esistono in nessun output**.
+
+*Verificato: `data/raw/panel.csv.gz` (pubblicato) ha 122 colonne e le sei
+`*_Est`; `data/interim/panel.parquet` (ricostruito) ne ha 117 e non le ha.*
+I checkpoint C–F le dichiarano come `expected_missing` e restano verdi.
+
+Conseguenza operativa: cadono con la RF anche X15 (`UndisclosedAmountFlag`) e
+X16 (`DealSynopsis`), che servivano solo a selezionare le righe da imputare.
 
 **M12 — la regola `Zero_Invested`.**
 I tipi di deal in cui l'importo manca in oltre il 90% dei casi ricevono 0
@@ -550,29 +772,88 @@ dataset**: stessa famiglia di M11, più mite. È **mantenuta** perché alimenta
 `TotalRaised` e perché «questo tipo di deal non dichiara mai l'importo, quindi
 è zero» non è un'imputazione modellistica. Da decidere se tenerla.
 
-**M13 — `TotalRaised` confonde tre situazioni diverse.**
+**M13 — `TotalRaised` confonde tre situazioni diverse. DECISA.**
 Vale 0 sia quando non c'è stato nessun deal, sia quando c'è stato un deal a
 importo zero, sia quando c'è stato un deal di importo **non dichiarato**.
 `TR_D` distingue il primo caso; `TotalRaised_NA` e `TotalRaised_any` il terzo.
-Con la RF sospesa questa è **la decisione aperta più urgente**: quale colonna
-prende il posto di `TotalRaised_Est` in `src/preprocessing.py`.
+
+> **Decisione del 2026-09-11: la colonna che sostituisce `TotalRaised_Est` in
+> `src/preprocessing.py` è `TotalRaised`.** La sostituzione si fa **dopo** aver
+> finito di correggere il notebook, in un passaggio solo, perché comporta
+> rigenerare `data/processed/` e tutti i run.
+>
+> Il costo della scelta, dichiarato: `TotalRaised` scrive **0** dove l'importo
+> non è dichiarato, quindi «non ha raccolto niente» e «non sappiamo quanto»
+> diventano lo stesso numero. `TotalRaised_NA` avrebbe lasciato un nullo, e
+> l'imputazione che gira prima del training avrebbe visto il buco. Da citare
+> nell'articolo se si discute la distribuzione di questa feature.
+>
+> **Resta aperto**, e si decide alla fase 4: se tenere `TotalRaised_NA` e
+> `TotalRaised_any` nel panel o eliminarle. Oggi servono a `TR_D` e sono
+> confrontate dai checkpoint C–F, quindi toglierle non è gratis.
 
 **M14 — la riparazione delle date dei deal inventa date.**
-Quattro passaggi successivi: dallo stato di proprietà per fallimenti e
-acquisizioni (plausibile), dall'anno di fondazione per il primo round
-(assunzione), e infine la **media arrotondata per eccesso fra l'anno del deal
-precedente e quello del successivo** (invenzione pura). *Da misurare:* su
-quanti deal scatta ciascuno dei quattro.
+`Deal.csv` ha **61.169 deal su 385.481 senza `DealDate`**, e i deal sono ciò
+che determina `GrowthStage`, cioè il target. Quattro passaggi successivi
+provano a inventarne una (`1_Arrange_DB.R:917-976`). *Misurato:*
+
+| passaggio | deal riparati | quota | che assunzione è |
+|---|---:|---:|---|
+| 1 — data dallo stato «Out of Business» | 1.210 | 0,4% | plausibile |
+| 2 — data dallo stato «Acquired/Merged» | 234 | 0,1% | plausibile |
+| 3 — primo round → 1° gennaio dell'anno di fondazione | **23.147** | **7,0%** | assunzione forte |
+| 4 — media fra l'anno del deal precedente e del successivo | **11.615** | **3,5%** | invenzione pura |
+| **totale con data inventata** | **36.206** | **10,9%** | |
+
+*(quote su 332.818 deal, cioè dopo il filtro `YearFounded > 2000` che sta fra
+il passaggio 2 e il passaggio 3.)*
+
+**Propagazione: arriva alle 47, attraverso il target e attraverso il campione.**
+Il passaggio 3 schiaccia 23.147 primi round sull'**età 0**, ed è proprio l'età
+del primo stadio `Early` che `build_windowed_dataset` usa per decidere chi
+entra nel campione (`StartingAge <= 2`). Un'azienda il cui primo round non ha
+data viene dichiarata d'ufficio «Early a zero anni» ed entra.
+
+**M25 — 16.690 deal escono dal panel in silenzio.** *(voce nuova, 2026-09-11;
+il meccanismo era censito come trappola di traduzione T26, ma non è solo una
+trappola.)*
+Dopo i quattro passaggi di M14 restano **16.690 deal senza data, il 5,0% del
+totale, su 13.184 aziende**. `pmax` senza `na.rm` li manda in un gruppo ad anno
+nullo e **non si agganciano a niente**: spariscono senza errore e senza traccia.
+
+*Misurato, per tipo di deal fra quelli persi:*
+
+| tipo | deal persi |
+|---|---:|
+| Accelerator/Incubator | 6.760 |
+| Secondary Transaction - Private | 3.235 |
+| **Later Stage VC** | **1.912** |
+| **Early Stage VC** | **1.272** |
+| Equity Crowdfunding | 762 |
+| terminali (uscita o fallimento), in tutto | 299 |
+
+**Propagazione: arriva alle 47, sul target.** Un'azienda il cui unico round
+«Later Stage VC» non ha data non raggiunge mai lo stadio `Later`: viene
+etichettata **non-successo**. Il bias del target è sistematico e va in una sola
+direzione, il pessimismo.
+
+Le opzioni sono tre e vanno decise alla fase 4: (a) tenere il comportamento R e
+dichiararlo nell'articolo; (b) collocare il deal sull'anno di fondazione, che
+è ciò che `pl.max_horizontal` farebbe da solo e che inventa deal in 7.335
+anni-azienda; (c) tenere il deal con un flag «data ignota» e escluderlo solo
+dalle colonne temporali. Nessuna delle tre è gratis.
 
 **M15 — i deal antecedenti la fondazione vengono spostati nel tempo.**
 `Year_Delta = pmax(year(DealDate), YearFounded)` schiaccia sull'anno di
 fondazione i deal datati prima. È un evento **spostato**, non scartato.
+*Misurato: **143 deal su 332.818, su 122 aziende**.* Trascurabile — è M14 e
+M25 che contano, non questa.
 
 ### Candidati all'eliminazione
 
 **X15 — `UndisclosedAmountFlag`.** Serviva **solo** a selezionare le righe da
-imputare con la RandomForest. Con la RF sospesa è **calcolata e mai usata**:
-peso morto che ho introdotto io sospendendo la RF.
+imputare con la RandomForest. Con la RF eliminata (M11) è **calcolata e mai
+usata**: peso morto nato dall'eliminazione. Da cancellare alla fase 4.
 
 **X16 — `DealSynopsis`.** Letta solo per costruire `UndisclosedAmountFlag`. Se
 cade X15, cade anche questa lettura.
@@ -656,7 +937,10 @@ tipo «inferiore» non abbassa mai lo stadio.
 **M17 — dove `TR_D == 1` tutte le varianti di `TotalRaised` vanno a 0.**
 Un anno senza deal non ha raccolto niente: corretto. Ma azzera anche
 `TotalRaised_NA` e `TotalRaised_any`, che erano le due colonne costruite per
-**distinguere** lo zero dal non-noto.
+**distinguere** lo zero dal non-noto. Con M13 decisa a favore di `TotalRaised`
+questa voce perde rilevanza per le 47, ma resta valida se un giorno si vuole
+usare `TotalRaised_NA`: dopo questo passaggio quella colonna non distingue più
+niente sugli anni senza deal.
 
 ### Candidati all'eliminazione
 
@@ -692,9 +976,12 @@ buttato e rifatto sul gruppo.
 ### Scelte discutibili
 
 **M18 — il troncamento elimina anche le righe non terminali che seguono una
-terminale.** *Misurato: 5.365 righe.* Un'azienda che risulta «Out» e poi ha un
-altro deal viene troncata al primo Out, e la sua vita successiva scompare. È
-coerente con l'idea che l'uscita sia assorbente (M16), ma va detto.
+terminale.** *Misurato: 5.364 righe (il troncamento ne elimina 119.301 in
+tutto, da 1.001.625 a 882.324, su 39.622 aziende).* Un'azienda che risulta
+«Out» e poi ha un altro deal viene troncata al primo Out, e la sua vita
+successiva scompare. È coerente con l'idea che l'uscita sia assorbente (M16),
+ma va detto. **Da leggere insieme a M1**: di quelle 39.622 aziende, 2.764 sono
+troncate su una riga il cui stadio terminale viene dal solo `OwnershipStatus`.
 
 **M19 — `StageBlock` non è riproducibile.** *Misurato: 81.954 righe fuori da
 qualsiasi variante provata.* Dichiarata come divergenza attesa ai checkpoint E
@@ -772,25 +1059,52 @@ si eliminano già alla fase 3a, sparisce anche tutta la mappa Europa.
 
 ## Riepilogo per priorità
 
-Ordinato per quanto conta, non per fase.
+Riordinato il 2026-09-11 su quello che è stato **misurato**, non su quello che
+sembrava grave. La colonna «arriva» usa le tre etichette del cancello
+2008–2017 spiegate all'inizio del file.
 
-| priorità | voce | perché |
-|---|---|---|
-| 1 | **M0** attributi delle persone non temporizzati | informazione dal futuro dentro quattro delle 47 feature, in un articolo sul look-ahead bias |
-| 2 | **B1** soglia `1999` / `2000` | un'intera coorte di fondazione sparisce dal dataset |
-| 3 | **M13** `TotalRaised` confonde tre situazioni | decisione aperta e bloccante: cosa sostituisce `TotalRaised_Est` |
-| 4 | **M1** `GrowthStage` mescola stato attuale e storia | tocca il target |
-| 5 | **M20** `MaxYear` come proxy di «viva» | bias sistematico su tre feature competitor |
-| 6 | **B4** `Same_Country` nulla | 1.809 aziende su una feature dei modelli |
-| 7 | **M22** `SimilarityScoreMean` riempita con 0 | zero è il minimo, non il neutro, su una feature |
-| 8 | **M7** `Percent_Females` diluita dal genere ignoto | feature dei modelli |
-| 9 | **M2** vintage competitor | i risultati pubblicati non sono riproducibili su tre feature |
-| 10 | **X11 / X23** mappa Europa | ~100 righe di codice e un file di dati che non servono a niente |
-| 11 | **X13** `N_News` | costante di fatto: zero sul 99,98% delle righe |
-| 12 | **X15 / X16** `UndisclosedAmountFlag` e `DealSynopsis` | morti da quando la RandomForest è sospesa |
-| 13 | **B2** `Is_Other` | colonna inutilizzabile, non fra le feature |
-| 14 | **M14 / M15** date dei deal inventate e spostate | eventi collocati nel tempo per assunzione |
+| # | voce | perché conta | arriva |
+|---|---|---|---|
+| 1 | **M0** attributi delle persone non temporizzati | informazione dal futuro dentro **tre** delle 47 feature, in un articolo sul look-ahead bias | **alle 47** |
+| 2 | **M14 + M25** date dei deal | 10,9% delle date inventate, 5% dei deal che evaporano; tocca il target e il campione | **alle 47** |
+| 3 | **M20 / M22 / M23** competitor temporizzati | `MaxYear` come proxy di «viva», zero come riempimento: bias sistematico su tre feature | **alle 47** |
+| 4 | **M2** vintage competitor | i risultati pubblicati non sono riproducibili su quelle tre feature | **alle 47** |
+| 5 | **M1** `GrowthStage` mescola stato attuale e storia | 2.764 aziende troncate lì, 9.620 righe perse; ma il salto temporale è quasi nullo | al panel |
+| 6 | **M12** regola `Zero_Invested` | statistiche globali che decidono un valore per riga; da tenere o togliere | **alle 47** |
+| 7 | **B1** soglia `1999` / `2000` | 2,77% del panel è rumore puro, ma nessun risultato pubblicato è toccato | al panel |
+| 8 | **B6** `seq()` all'indietro | 186 righe che dicono che un'azienda esisteva prima di nascere | al panel |
+| 9 | **X11 / X23** mappa Europa | ~100 righe e un file di dati che esistono solo per il checkpoint B | muore prima |
+| 10 | **X13** `N_News` | costante di fatto: `> 0` su 97 righe su 882.324 | al panel |
+| 11 | **X15 / X16** `UndisclosedAmountFlag` e `DealSynopsis` | morti con l'eliminazione della RandomForest | al panel |
+| 12 | **B2** `Is_Other`, **B3** `StageBlock`, **X21** | colonne inutilizzabili, nessuna fra le feature | al panel |
+| 13 | **M15** deal spostati sull'anno di fondazione | 143 deal su 122 aziende | **alle 47** |
+
+**Chiuse, decise o declassate** — restano nel file per tracciabilità, fuori
+dalla classifica:
+
+| voce | perché è uscita |
+|---|---|
+| **M11** RandomForest | **eliminata**, decisione del 2026-09-11 |
+| **M13** `TotalRaised_Est` | **decisa**: la sostituisce `TotalRaised` |
+| **B4** `Same_Country` nulla | la colonna col bug è buttata alla fase 7: **muore prima** |
+| **B8** asimmetria Europa | entrambe le colonne sono eliminate alla fase 7 |
+| **M7** `Percent_Females` diluita | *misurato: genere ignoto sullo 0,6% delle righe* |
+| **X14** `EmployeeCount` | *misurato: valorizzata sul 30% delle righe*, non è peso morto |
 
 Le voci **T** non sono in questa classifica: sono già risolte. Vanno rilette
 prima di riscrivere la fase corrispondente, perché una riscrittura le
-reintroduce senza far rumore.
+reintroduce senza far rumore. **Due eccezioni da leggere comunque:** T16, la
+cui conclusione era sbagliata ed è stata corretta; e T26, che è anche una
+scelta metodologica e ora ha una voce sua (M25).
+
+## Difetti del codice Python, non dell'R
+
+Due cose trovate rileggendo la traduzione. Nessuna delle due cambia un output
+di oggi; la prima cambia un output appena si accende un flag.
+
+1. **`round()` nel ramo corretto di B5.** R arrotonda al pari, polars per
+   eccesso. Irrilevante sulla media globale (7,97), decisivo sulle medie per
+   azienda, dove i pareggi a `.5` sono normali. Vedi il riquadro in B5.
+2. **`config/config.yaml` ha una chiave morta.** È stato aggiunto
+   `first_year: 2010`, ma `build_windowed_dataset` ha ancora `>= 2010` scritto
+   a mano nel codice. O si legge la chiave o si toglie.

@@ -1,6 +1,7 @@
 # Panel — stato della revisione fase per fase
 
-Ultimo aggiornamento: 2026-09-10 (tutte le fasi inlinate e verificate identiche)
+Ultimo aggiornamento: 2026-09-11 (catalogo errori riverificato e misurato;
+si parte con le correzioni, dalla fase 1)
 
 Questo file è il punto di ripresa. Se la sessione di lavoro si interrompe,
 basta questo file più `git log` per riprendere senza ricostruire niente.
@@ -84,20 +85,177 @@ sono mosse e su quante righe. Se un checkpoint diventa rosso senza che tu
 l'abbia voluto, e' un errore di implementazione e non un effetto della
 correzione.
 
+## Le correzioni, fase per fase
+
+Si riparte dall'inizio della pipeline e si corregge ogni errore quando si
+presenta. Per ciascuno, prima di toccare il codice: **qual e' l'errore, perche'
+e' stato commesso, come si risolve, cosa cambia.** Spuntare man mano.
+
+Sul notebook **leggero**, e in ordine di pipeline.
+
+| fase | voci da affrontare | stato |
+|---|---|---|
+| 1 | **B6 `seq()` all'indietro** | **fatto** (2026-09-11) |
+| 2a | **B9** (misurato: 3 celle, nessuna modifica) · B5 (+ arrotondamento) · B10 · M4, M5 | B9 chiusa |
+| 2b | **B1 soglia** | **fatto** (2026-09-11) |
+| 2b | B7 `Institute` con "NA" · M8 | da fare |
+| 4 | **B1 soglia, seconda occorrenza** | **fatto** (2026-09-11) |
+| 4 | M12 `Zero_Invested` · M14 date inventate · M25 deal che evaporano | da fare |
+| 5 | M1 `GrowthStage` mescola stato e storia · M16 | da fare |
+| 6 | M18 troncamento | da fare |
+| 7 | M20, M21, M22, M23, M24 · M2 vintage | da fare |
+| trasversale | **M0** attributi delle persone non temporizzati | da fare |
+| dopo | M13: `TotalRaised` in `preprocessing.py`, rigenerare i dataset e i run | da fare |
+
+**Cadute con le fasi 3a e 3b**, che nel leggero non esistono: B4, B8, X11/X23
+(la mappa Europa e `scripts/derive_europe_mapping.py`), X13, X14, T19-T25.
+**Cadute con le colonne eliminate**: B2 (`Is_Other`), B3 e X21 (`StageBlock`),
+X22, M17, M19, X15-X20.
+
+## `build_panel_light.ipynb` — la pipeline di lavoro
+
+**Dal 2026-09-11 `build_panel.ipynb` e' un artefatto congelato**: ha dimostrato
+che la traduzione dall'R e' fedele (sei checkpoint verdi, quattordici confronti
+a divergenza zero) e non si tocca piu'. La pipeline su cui si lavora e'
+`build_panel_light.ipynb`.
+
+Produce **solo le 53 colonne di `data/raw/example_panel.csv`** — con
+`TotalRaised` al posto di `TotalRaised_Est` — e scrive in `data/interim_light/`
+per non toccare i parquet del panel completo. Ogni riga e' commentata.
+
+**Passo 1 fatto: a flag spenti il panel leggero e' identico al completo.**
+*Verificato eseguendo tutte e 45 le celle: 882.324 righe x 53 colonne,
+116.327 aziende, **zero divergenze su tutte e 51 le colonne condivise**.*
+`Institute` e' confrontata come insieme di atenei e non come stringa, perche'
+l'ordine della concatenazione non porta informazione.
+
+**Passo 2 fatto: a flag accesi il panel leggero e' ancora identico al
+completo.** *Verificato eseguendo entrambi i notebook con
+`fix_founding_year_threshold` e `fix_negative_delta` accesi: 880.473 righe,
+116.313 aziende, **zero divergenze su tutte e 51 le colonne condivise**, zero
+chiavi spaiate.* Le due correzioni sono quindi implementate allo stesso modo
+nei due notebook.
+
+Effetto misurato delle due correzioni sul panel finale:
+
+| | flag spenti | flag accesi | |
+|---|---:|---:|---:|
+| righe del panel | 882.324 | 880.473 | −1.851 |
+| aziende | 116.327 | 116.313 | −14 |
+| righe con dati di team | 795.698 | 816.297 | **+20.599** |
+| righe con `GrowthStageGroup` | 623.359 | 637.043 | **+13.684** |
+| righe con `Age < 0` | 186 | **0** | −186 |
+| coorte 2000, righe con team | **0,0%** | **90,5%** | |
+| coorte 2000, righe con stadio | **0,0%** | **60,1%** | |
+
+Le righe totali calano mentre i dati crescono: dando alla coorte 2000 i suoi
+deal, quelle aziende acquistano per la prima volta uno stadio, e molte vengono
+di conseguenza troncate a un'uscita o a un fallimento. Prima restavano nel
+panel per intero solo perche' non avevano nessuno stadio.
+
+> **Nota operativa: il notebook completo a flag accesi non gira in un processo
+> solo su questa macchina.** Correggere B1 aggiunge la coorte 2000
+> all'espansione della fase 2b, e il picco supera i 7 GB: il processo viene
+> ucciso dall'OOM. E' stato eseguito **una fase per processo** (gli stadi
+> comunicano via parquet) e con la fase 2b spezzata in otto blocchi di aziende
+> — `expand_team` e la sua aggregazione sono entrambe per `CompanyID`, quindi
+> spezzare per azienda e' esattamente equivalente. Il notebook **leggero** non
+> ha questo problema: gira intero in 91 s con un picco di 2,29 GB, perche'
+> porta 22 colonne attraverso l'espansione invece di 117.
+
+**Passo 3 fatto: i due flag non esistono piu' nel notebook leggero.**
+`fix_negative_delta` e `fix_founding_year_threshold` sono state promosse a
+comportamento: la soglia e' `SOGLIA_FONDAZIONE = 1999` in tutte e tre le fasi,
+e il limite dello scheletro e' sempre `max_horizontal("MaxYear", "YearFounded")`.
+*Verificato: il panel prodotto e' **identico riga per riga** a quello del passo
+2 (880.473 x 53).* I due flag restano in `PanelConfig` perche' li usa
+`build_panel.ipynb`, che e' congelato; gli altri otto flag restano spenti nel
+leggero e riproducono il difetto dell'R.
+
+La cella di confronto e' stata sostituita da una **verifica di invarianti**:
+righe, aziende, colonne, righe con team e con stadio, piu' due assert sulle
+correzioni (`Age < 0` deve essere zero, la coorte 2000 deve avere oltre l'80%
+di righe con dati di team) e il controllo che le colonne coincidano con
+`example_panel.csv`. Rieseguire il notebook completo a ogni giro non ha senso:
+a correzioni accese non sta in memoria in un processo solo, e l'equivalenza e'
+gia' dimostrata e registrata qui.
+
+### Il panel corrente
+
+| | valore |
+|---|---:|
+| righe | 880.473 |
+| aziende | 116.313 |
+| colonne | 53 |
+| righe con dati di team | 816.297 |
+| righe con `GrowthStageGroup` | 637.043 |
+| righe con `Age < 0` | 0 |
+| tempo di esecuzione | 97 s, picco 2,27 GB |
+
+**Prossimo passo: riprendere le correzioni dal catalogo**, in ordine di
+pipeline, sul notebook leggero. Le voci ancora aperte che lo riguardano sono
+~12; quelle legate alle fasi 3a e 3b sono cadute con le fasi stesse.
+
+| | completo | leggero |
+|---|---:|---:|
+| celle di codice | 91 | **45** |
+| CSV letti | 13 | **9** |
+| colonne di `Company.csv` | 39 | **11** |
+| colonne di `db3` | 54 | **22** |
+| aggregati di team | 23 | **13** |
+| colonne del panel | 117 | **53** |
+| tempo di esecuzione | ~8 min | **72 s** |
+
+Spariscono **due fasi intere**: la 3a (competitor statici, tutti sovrascritti
+dalla 7) e la 3b (dipendenti, bilanci, news). Con loro cadono B4, B8, la mappa
+Europa (X11/X23 e `scripts/derive_europe_mapping.py`), X13, X14, T22-T25, piu'
+B3/X21 (`StageBlock`), X22, M17, M19 e B2 (`Is_Other`).
+
+### Registro delle correzioni applicate
+
+**B6 — `fix_negative_delta`, fase 1, blocco 1.8** (2026-09-11).
+Il ramo del fix è stato riscritto: invece di fabbricare una lista di un
+elemento con `pl.int_ranges` dentro un `pl.when`, alza il limite della sequenza
+con `pl.max_horizontal("MaxYear", "YearFounded")`. Sei righe diventano due e il
+codice dice quello che significa: il panel di un'azienda non può finire prima
+di iniziare. **Comportamento identico su entrambi i rami**, verificato.
+
+*Verificato eseguendo i blocchi 1.1–1.10 sui dati veri:*
+
+| | flag spento | flag acceso |
+|---|---|---|
+| scheletro | 908.179 righe, **identico** al pre-modifica | 907.934 righe (−245) |
+| righe con `Delta < 0` | 245 | **0** |
+| aziende | 116.919 | 116.919 (nessuna persa) |
+| `db_master_1_v1` | identico | identico (non lo tocca) |
+
+Flag **spento** per default, come da accordo.
+
+## Decisioni prese
+
+1. **M11 — l'imputazione RandomForest è eliminata**, non sospesa. Il modello è
+   sbagliato alla radice (nessun `set.seed`, addestrato su tutti gli anni,
+   fittato prima di qualsiasi split, con il tipo di deal fra i predittori
+   mentre il tipo di deal determina il target). Le sette colonne `*_Est` non
+   esistono in nessun output.
+2. **M13 — la colonna che sostituisce `TotalRaised_Est` in
+   `src/preprocessing.py` è `TotalRaised`.** La sostituzione si fa **dopo**
+   aver finito di correggere il notebook, in un passaggio solo: comporta
+   rigenerare `data/processed/` e tutti i run.
+
 ## Decisioni aperte
 
-1. **Bloccante, voce M13.** `src/preprocessing.py` selezionava
-   `TotalRaised_Est`, che non esiste più perché l'imputazione RandomForest è
-   sospesa. Va sostituita con `TotalRaised` (zero dove l'importo non è
-   dichiarato) oppure con `TotalRaised_NA` (nulla lì, così l'imputazione che
-   gira prima del training vede il buco). Entrambe vengono prodotte. In ogni
-   caso i due dataset processati e tutti i run vanno rigenerati.
-2. **Voce M0**, la più grave del catalogo: gli attributi delle persone non sono
-   temporizzati. Se e come correggerla è da valutare a sé, è l'intervento più
-   costoso.
+1. **Voce M0**: gli attributi delle persone non sono temporizzati. È la prima
+   del riepilogo per priorità e l'intervento più costoso; le fonti datate
+   (`PersonPositionRelation`, `PersonEducationRelation`) ci sono. Da valutare
+   a sé.
+2. **Voci M14 e M25**: il 10,9% delle date dei deal è inventato e il 5% dei
+   deal esce dal panel senza traccia. Tre opzioni, si decide alla fase 4.
 3. **Voce M2**: le sei colonne competitor di `data/raw/panel.csv.gz` vengono da
    un altro download di `CompanySimilarRelation.csv`. Se salta fuori
    l'estrazione giusta, il checkpoint F si chiude.
+4. **Voci X11/X23**: la mappa Europa serve solo al checkpoint B. Si elimina
+   quando la fedeltà smette di essere l'obiettivo.
 
 ## I file da leggere, in ordine
 

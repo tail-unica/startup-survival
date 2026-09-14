@@ -22,6 +22,7 @@ docs/review.txt
 data/raw/pitchbook/
 data/reference/
 data/interim/
+data/interim_light/
 
 # Script R originali: impalcatura temporanea, cancellata quando il port in
 # Python e' tradotto e validato. Contengono percorsi assoluti personali.
