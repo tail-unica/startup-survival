@@ -296,9 +296,15 @@ pubblicati.
 (`fix_permanenza_media_per_company`). L'R la calcola con un `summarise` senza
 `group_by`, nonostante il commento dichiari «per ciascuna CompanyID»: è la
 permanenza media su tutto il dataset, usata per imputare l'`EndDate` di
-chiunque. *Misurato: quel numero vale **8 anni** (media grezza 7,974556).* Ogni
-persona di cui non si sa quando ha lasciato l'azienda riceve «entrata + 8
-anni», che sia una startup morta in due anni o una sopravvissuta quindici.
+chiunque. *Misurato: quel numero vale **7 anni** (media grezza 6,606065,
+calcolata sulle 124.277 righe che hanno entrambe le date **prima**
+dell'imputazione).* Ogni persona di cui non si sa quando ha lasciato l'azienda
+riceve «entrata + 7 anni», che sia una startup morta in due anni o una
+sopravvissuta quindici.
+
+*Misurato: la regola scatta su **115.399 righe, il 21,6% di `db3`**.* Non e'
+un ritocco marginale: e' una riga su cinque la cui finestra di presenza e'
+inventata da un solo numero.
 
 Quella data decide **in quali anni una persona viene contata nel team**, quindi
 tocca tutte le colonne della fase 2b. *Misurato: con la media per azienda il
@@ -309,7 +315,7 @@ Sistematico ma piccolo.
 > **⚠ Il ramo corretto ha un difetto suo: l'arrotondamento.**
 > `round()` di R arrotonda **al pari** (`round(7.5)` è 8, `round(8.5)` è 8);
 > `.round(0)` di polars arrotonda per eccesso (8 e 9). Con la media globale non
-> si nota, perché 7,97 non è un pareggio. Con la media **per azienda** i
+> si nota, perché 6,61 non è un pareggio. Con la media **per azienda** i
 > pareggi diventano normali — due persone con 7 e 8 anni fanno esattamente 7,5.
 > Va sistemato **prima** di accendere il flag, altrimenti il ramo corretto
 > arrotonda diversamente dal ramo di riferimento senza farlo notare.
@@ -1103,7 +1109,7 @@ Due cose trovate rileggendo la traduzione. Nessuna delle due cambia un output
 di oggi; la prima cambia un output appena si accende un flag.
 
 1. **`round()` nel ramo corretto di B5.** R arrotonda al pari, polars per
-   eccesso. Irrilevante sulla media globale (7,97), decisivo sulle medie per
+   eccesso. Irrilevante sulla media globale (6,61), decisivo sulle medie per
    azienda, dove i pareggi a `.5` sono normali. Vedi il riquadro in B5.
 2. **`config/config.yaml` ha una chiave morta.** È stato aggiunto
    `first_year: 2010`, ma `build_windowed_dataset` ha ancora `>= 2010` scritto
