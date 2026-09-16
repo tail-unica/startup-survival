@@ -83,6 +83,14 @@ numeri in `docs/panel_revisione_stato.md`, «Registro: fase 2 del leggero».
   left join in 2b.3. Il panel coincide con lo scheletro.
 - In `db3` entrano solo le aziende dello scheletro.
 
+**2026-09-16 — M7 corretto, M8 dichiarata.** `Percent_Females` ha come
+denominatore le persone di genere noto; M8 resta com'è, con i numeri misurati
+nella sua voce.
+
+**2026-09-16 — B7 corretto e pipeline ripulita.** `Institute` non contiene più il
+testo `"NA"`. Il notebook leggero non legge più nessun flag `fix_*`: restano in
+`PanelConfig` solo per `build_panel.ipynb`, che è congelato.
+
 **2026-09-15 — M0 corretto nel leggero.** Esperienza e istruzione delle persone
 sono ricostruite anno per anno dalle tabelle di dettaglio e agganciate dopo
 l'espansione, per il team (2b.1bis) e per il CEO (5.6). Vedi il registro in
@@ -465,10 +473,18 @@ Chi ha `IsCurrent == "Yes"` riceve come fine permanenza una data fissa legata
 al **vintage dell'estrazione**. Rieseguire la pipeline su un download del 2026
 darebbe finestre diverse per le stesse persone.
 
-**M5 — `DeltaStart = 0` per i founder.**
+**M5 — `DeltaStart = 0` per i founder** — *decisa il 2026-09-16: si tiene.*
 Sovrascrive la data di inizio reale: si assume che un founder ci sia dal primo
 giorno. Ragionevole come euristica, ma cancella un dato che in alcuni casi
-c'era. *Misurato: 19.458 founder avevano una `DeltaStart` reale diversa da 0.*
+c'era. *Misurato con la pipeline di oggi: 205.884 coppie founder; fra quelle con
+una data d'ingresso vera, 17.834 (8,9%) risultano entrate dopo la fondazione, in
+media 3 anni.*
+
+> **Corretto invece il riconoscimento del founder.** L'R cerca `Found` nella
+> qualifica, quindi prende anche "Foundation", "Foundry" e gli assistenti
+> ("Founder's Associate"). Nel leggero si cerca `founde|founding` dopo aver
+> tolto la frase degli assistenti: **42 coppie perdono il flag**, `Total_Founders`
+> cala di 252 anni-persona.
 
 **M6 — `PermanenzaMedia` come imputazione.** — *chiusa il 2026-09-14 nel notebook leggero, vedi «Decisioni prese»*
 Anche corretta per azienda (B5), imputare la fine di una permanenza con una
@@ -531,9 +547,11 @@ Non è solo il team: senza deal non c'è niente che possa accendere
 comunque nessuna persona in `CompanyBoardTeamRelation.csv`).
 
 **B7 — `paste(unique(Institute))` include i NA come testo**
-(`fix_institute_na_literal`). *Misurato: 390.544 righe del riferimento hanno un
-`Institute` che comincia con `"NA; "`.* Cosmetico: non altera il flag «ateneo
-fra i primi 50», che cerca nomi di università.
+(`fix_institute_na_literal`) — *corretto il 2026-09-16 nel notebook leggero*.
+*Misurato: 390.544 righe del riferimento hanno un `Institute` che comincia con
+`"NA; "`.* Cosmetico: non altera il flag «ateneo fra i primi 50», che cerca nomi
+di università. Nel leggero i mancanti ora si scartano, come in 2a.5: le righe con
+`"NA"` fra gli atenei passano da 343.460 a 0 e nessun'altra colonna si muove.
 
 ### Trappole di traduzione
 
@@ -568,11 +586,19 @@ niente.
 
 ### Scelte discutibili
 
-**M7 — `Percent_Females` ha come denominatore tutte le persone.**
+**M7 — `Percent_Females` ha come denominatore tutte le persone** — *corretta il
+2026-09-16 nel notebook leggero.*
 Usa `.N`, cioè conta anche le persone con genere ignoto. Se il genere è
 sconosciuto per metà del team, la quota di donne è **diluita verso il basso**
 invece di essere calcolata sui soli casi noti. `Percent_Females` è una delle 47
 feature.
+
+> **Corretta.** Il denominatore sono ora le persone di genere noto, e dove
+> nessuno ha un genere noto la colonna resta vuota, perché la quota non è
+> definita. *Misurato sul panel: cambia su 8.582 righe, in media di 5,33 punti;
+> la media della colonna passa da 14,217 a 14,288; le righe valorizzate scendono
+> da 749.892 a 749.093. Nessun'altra colonna si muove.* La distorsione non era
+> casuale: colpiva le aziende con i team documentati peggio.
 
 > **Declassata.** Era «da misurare», ed era in nona posizione nel riepilogo.
 > *Misurato su `db3`: `Gender` è nullo su **3.012 righe su 534.851 = 0,6%**
@@ -580,10 +606,21 @@ feature.
 > percentuale di casi. **Fuori dal riepilogo per priorità**: resta qui come
 > nota di trasparenza, non come cosa da correggere.
 
-**M8 — founder e chiunque altro pesano uguale.**
+**M8 — founder e chiunque altro pesano uguale** — *decisa il 2026-09-16: si
+dichiara nell'articolo, non si corregge.*
 L'aggregazione mette sullo stesso piano i founder e ogni altro membro del board
 team. `Total_Founders` li conta, ma gli indici di esperienza e di istruzione
 sono medie su tutti.
+
+> **Misurato il 2026-09-16.** I founder sono **1.544.565 anni-persona su
+> 3.710.269 (41,6%)**, e hanno *meno* esperienza degli altri (indice medio 0,083
+> contro 0,199), perché fra i non founder ci sono investitori e dirigenti esterni
+> con molte cariche. Il titolo di studio è simile (3,82 contro 3,80), la quota di
+> donne più bassa (11,6% contro 16,7%). Calcolando le medie sui soli founder, la
+> media di team passerebbe da 0,007 a 0,046, con correlazione 0,725 rispetto a
+> oggi, e resterebbe **vuota nel 14,5% degli anni-azienda**, quelli senza nessun
+> founder presente. Non è un errore ma una definizione: la feature misura il
+> vertice nel suo complesso, e va detto nell'articolo.
 
 Vedi anche **M0**: gli attributi aggregati qui non sono temporizzati.
 

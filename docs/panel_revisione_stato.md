@@ -103,10 +103,12 @@ Sul notebook **leggero**, e in ordine di pipeline.
 |---|---|---|
 | 1 | **B6 `seq()` all'indietro** | **fatto** (2026-09-11) |
 | 2a | **B9** deduplica · **B5** permanenza media · **B10** `Is_Out` · **M4** fine 2024 · **M6** | **fatto** (2026-09-14) |
-| 2a | M5 founder a eta' zero | da fare |
+| 2a | **M5** founder a eta' zero | **decisa** (2026-09-16): si tiene; `IsFounder` corretto per non prendere "Foundation" e gli assistenti |
 | 2a-2b | **T17** full join · **M3** `MaxYear` come fine del panel | **fatto** (2026-09-14): taglio e left join |
 | 2b | **B1 soglia** | **fatto** (2026-09-11) |
-| 2b | B7 `Institute` con "NA" · M8 | da fare |
+| 2b | **B7** `Institute` con "NA" | **fatto** (2026-09-16) |
+| 2b | **M7** denominatore di `Percent_Females` | **fatto** (2026-09-16) |
+| 2b | **M8** founder pesati come gli altri | **decisa** (2026-09-16): si dichiara nell'articolo |
 | 4 | **B1 soglia, seconda occorrenza** | **fatto** (2026-09-11) |
 | 4 | M12 `Zero_Invested` · M14 date inventate · M25 deal che evaporano | da fare |
 | 5 | M1 `GrowthStage` mescola stato e storia · M16 | da fare |
@@ -366,6 +368,44 @@ che cambia fra un'esecuzione e l'altra, e la media della standardizzazione
 cambiava nelle ultime cifre (1e-15). *Verificato: 8 ripetizioni davano 8
 risultati; ordinando le coppie prima del calcolo, uno solo.* Con l'ordinamento,
 **due esecuzioni complete danno un panel identico in ogni colonna**.
+
+**2026-09-16 — M5 confermata e `IsFounder` piu' preciso.** Giulio conferma la
+regola dell'R: chi e' founder lo e' dal giorno zero, quindi `DeltaStart = 0`
+resta. *Misurato con la pipeline di oggi: 205.884 coppie founder (44,5%); fra
+quelle con una data d'ingresso vera, 17.834 (8,9%) risultano entrate dopo
+l'anno di fondazione, in media 3 anni, mediana 2: sono loro a essere spostate
+indietro dalla regola.*
+Il riconoscimento invece cambia: l'R cercava `Found`, che prende anche
+"Foundation" e "Foundry". Ora cerca `founde|founding` (i refusi presenti nei
+dati - Co-Founde, Co-Founderf, Co-Foundder - restano) e toglie prima la frase
+"Founder's Associate" / "Founders Associate", che indica un assistente del
+fondatore. *Effetto: 42 coppie perdono il flag (34 "Foundation"/"Foundry", 8
+assistenti); nel panel `Total_Founders` cala di 252 anni-persona e
+`Total_People` di 63, perche' chi non e' piu' founder non viene piu' riportato
+all'anno zero. Le altre colonne si muovono su poche decine di righe; gli indici
+di esperienza cambiano ovunque nelle ultime cifre, perche' cambia di poco la
+popolazione su cui si standardizza.*
+
+**2026-09-16 — M7 corretto.** Il denominatore di `Percent_Females` sono ora le
+persone di **genere noto**; dove nessuno ha un genere noto la colonna resta
+vuota. *Misurato: cambia su 8.582 righe del panel, in media di 5,33 punti; media
+della colonna 14,217 -> 14,288; righe valorizzate 749.892 -> 749.093; nessun'altra
+colonna si muove.* Il genere e' ignoto sullo 0,55% degli anni-persona, ma si
+concentra nelle aziende documentate peggio, quindi la diluizione non era casuale.
+
+**2026-09-16 — M8 dichiarata, non corretta.** I founder sono il 41,6% degli
+anni-persona e hanno un indice di esperienza piu' basso degli altri (0,083 contro
+0,199), perche' fra i non founder ci sono investitori e dirigenti esterni.
+Medie sui soli founder darebbero 0,046 invece di 0,007 (correlazione 0,725) e
+sarebbero vuote nel 14,5% degli anni-azienda. Cambiare la definizione
+cambierebbe l'oggetto misurato: si dichiara nell'articolo.
+
+**2026-09-16 — B7 e pulizia.** In 2b.2 i mancanti di `Institute` si scartano
+(righe con `"NA"` fra gli atenei: 343.460 -> 0; nessun'altra colonna si muove).
+Con questo il notebook **non legge piu' nessun flag** `fix_*`: sono rimasti in
+`PanelConfig` solo per `build_panel.ipynb`. Tolti anche gli import inutilizzati
+(`scale_r`, `BUG_FLAGS`) e il parquet `data/interim_light/db1.parquet`, che
+nessuna cella scrive o legge piu'.
 
 **Cosa resta di M0.** I ruoli senza data contano dall'anno di fondazione
 dell'entita' (limite inferiore) o da sempre; la standardizzazione usa tutte le
