@@ -175,6 +175,27 @@ entro l'anno Y**.
 
 ### M1 — `GrowthStage` mescola stato attuale e storia
 
+> **Decisa il 2026-09-16: la cascata si tiene com'è.** Rimisurata sulla pipeline
+> corrente (907.934 righe prima del troncamento): `OwnershipStatus` è valorizzato
+> su 116.527 righe (12,8%), una per azienda, e fa scattare un ramo terminale **da
+> solo**, con il flag storico falso, in **1.928 righe**: 1.664 «Out of Business»,
+> 195 acquisizioni, 69 quotazioni. In altre 2.288 righe lo stato è valorizzato e
+> discorda, ma lì decide comunque il flag.
+>
+> *Controprova, eseguendo la pipeline dalla fase 5 con i tre rami basati solo sui
+> flag storici: il panel passa da 802.148 a 805.104 righe (+2.956), le aziende da
+> 116.312 a 116.444, il dataset dei modelli da 32.752 a 32.797 aziende, il target
+> «Out» da 8.659 a 8.634.*
+>
+> **Perché si tiene.** Quelle 1.664 aziende sono fallimenti reali che nessun deal
+> registra: togliendo lo stato resterebbero nel panel come se fossero ancora
+> vive, e il target direbbe «non uscita» a un'azienda chiusa — un errore peggiore
+> di quello di principio. Lo stato entra **solo nell'anno della propria data**,
+> che per «Out of Business» e «Acquired/Merged» è di fatto la data dell'evento,
+> quindi il salto temporale è nullo. L'unico ramo davvero discutibile è
+> `Exit_Public`, dove la data dello stato può non essere quella della quotazione:
+> **69 righe**. Da dichiarare nell'articolo così com'è.
+
 **Dove:** fase 5, `2_Arrange_Final.R:80-92`.
 
 La cascata che definisce `GrowthStage` — e quindi il target — ha due fonti:
@@ -188,9 +209,10 @@ attenzione: `OwnershipStatus` è nullo su quasi tutte le righe del panel (è
 agganciato solo all'anno della sua data), quindi nella pratica decide poco, ma
 dove decide sta proiettando lo stato di oggi su un anno passato.
 
-*Misurato su `db_master_2`: la condizione è vera per via di `OwnershipStatus` e
-falsa per via dei flag su **2.764 righe su 1.001.625**, una per azienda —
-`OwnershipStatus` è valorizzato su 116.619 righe in tutto.*
+*Misurato su `db_master_2`, cioè sul panel completo del 2026-09-11: la condizione
+è vera per via di `OwnershipStatus` e falsa per via dei flag su **2.764 righe su
+1.001.625**, una per azienda. Sulla pipeline corrente sono 1.928 righe: vedi il
+riquadro qui sopra.*
 
 **Propagazione: arriva al panel, in modo indiretto ma reale.** Quelle 2.764
 righe ricevono uno stadio terminale, e alla fase 6 il troncamento taglia
@@ -1024,10 +1046,32 @@ vede 5,5.* Il motivo è che l'estrazione contiene i deal **delle aziende del
 campione**, non tutti quelli dell'investitore: i fondi grandi risulterebbero
 molto più piccoli del vero.
 
-Tre strade, **da decidere**: (a) tenerle e dichiararlo nell'articolo; (b)
-sostituirle con «investimenti fatti nel campione entro l'anno Y», temporizzata
-ma di significato diverso e distorta verso il basso per i fondi grandi; (c)
-eliminarle.
+> **2026-09-16: implementata come secondo ramo di un interruttore.** Il blocco
+> 4.1 costruisce, se `TEMPORIZZA_INVESTITORI` è acceso, i valori dell'investitore
+> **anno per anno** dai deal datati dell'estrazione (conteggio cumulato e mediana
+> cumulata di `DealSize`), e li aggancia a ogni partecipazione con un join asof
+> sull'anno del suo deal. L'interruttore parte **spento**: il default resta la
+> fotografia, cioè il comportamento pubblicato.
+>
+> *Misurato accendendo l'interruttore: cambiano solo le due colonne attese.*
+>
+> | | fotografia | temporizzata |
+> |---|---:|---:|
+> | `MeanTotalInvestments_cum`, mediana | 129,00 | 26,00 |
+> | `MeanMedianRoundAmount_cum`, mediana | 1,05 | 0,95 |
+> | righe valorizzate | 64,4% e 62,2% | 50,8% e 46,9% |
+> | correlazione fra le due versioni | — | 0,676 e **0,176** |
+>
+> **Il punto che decide.** Nel dataset dei modelli i valori mancanti passano dal
+> 15,5% al **44,4%** per `MeanTotalInvestments_cum` e dal 19,6% al **50,3%** per
+> `MeanMedianRoundAmount_cum`: **oltre la soglia del 40%** di
+> `handle_missing_values`, che le scarterebbe entrambe. Accendere l'interruttore
+> equivale quindi, oggi, a eliminare le due feature (opzione c), a meno di
+> cambiare quella soglia. La correlazione di 0,176 su `MeanMedianRoundAmount_cum`
+> dice inoltre che la mediana ricostruita su `DealSize` misura qualcosa di molto
+> diverso da quella dichiarata da PitchBook.
+>
+> **Resta da decidere quale versione pubblicare**, con i modelli in mano.
 
 ### Candidati all'eliminazione
 
@@ -1109,10 +1153,34 @@ comportamento identico in polars, ma dipende dalla logica a tre valori e non va
 Vedi **M1** (`GrowthStage` mescola stato attuale e storia) e **M0** (attributi
 del CEO non temporizzati).
 
-**M16 — `cumany` rende gli stadi monotoni.**
+**M16 — `cumany` rende gli stadi monotoni** — *decisa il 2026-09-16: si tiene e
+si dichiara.*
 Un'azienda non può retrocedere di stadio. Ragionevole per uscita e fallimento;
 discutibile per la sequenza seed → early → later, dove un round successivo di
 tipo «inferiore» non abbassa mai lo stadio.
+
+> **Misurato sulla pipeline corrente (907.934 righe prima del troncamento).**
+> La cumulata non è un dettaglio: **il 70,0% degli anni-azienda non ha nessun
+> round**, e usando i soli round dell'anno lo stadio sarebbe nullo sul **70,2%**
+> delle righe invece che sul 26,5%. Senza `cumany` il panel diventerebbe una
+> sequenza di lampi con il vuoto in mezzo, e il target — che si legge a
+> `StartingAge` e guarda lo stadio futuro — non starebbe in piedi.
+>
+> Le righe in cui i round dell'anno direbbero uno stadio **più basso** del
+> cumulato sono **20.747 (2,3%), in 14.749 aziende**, e si dividono in due:
+>
+> | famiglia | righe | tipico |
+> |---|---:|---|
+> | il cumulato è già terminale | 2.727 | azienda già acquisita che incassa un altro round; **queste righe le elimina il troncamento della fase 6** |
+> | scala nella sequenza di finanziamento | **18.020** (13.172 aziende) | `EarlyVC` → `Preseed` (6.491), `Seed` → `Preseed` (6.175), `Later` → `Preseed` (3.986) |
+>
+> Il caso tipico non è una retrocessione: è un'azienda già cresciuta che prende
+> un grant, un round da acceleratore o da business angel, tutti classificati
+> `Preseed`. Chiamarla «tornata Preseed» sarebbe sbagliato.
+>
+> **Alternativa non adottata:** tenere lo stadio cumulato e affiancargli una
+> colonna con lo stadio implicato dai soli round dell'anno — una feature nuova,
+> come `UndisclosedAmountShare`, che riguarderebbe quelle 20.747 righe.
 
 **M17 — dove `TR_D == 1` tutte le varianti di `TotalRaised` vanno a 0.**
 Un anno senza deal non ha raccolto niente: corretto. Ma azzera anche
@@ -1156,7 +1224,32 @@ buttato e rifatto sul gruppo.
 ### Scelte discutibili
 
 **M18 — il troncamento elimina anche le righe non terminali che seguono una
-terminale.** *Misurato: 5.364 righe (il troncamento ne elimina 119.301 in
+terminale.** — *decisa il 2026-09-16: si tiene.*
+
+> **Rimisurata sulla pipeline corrente.** Il troncamento elimina **105.786
+> righe** (da 907.934 a 802.148), così composte:
+>
+> | cosa | righe |
+> |---|---:|
+> | l'anno dell'uscita stesso | 39.698 |
+> | anni successivi, già terminali per via della cumulata | 64.952 |
+> | **righe non terminali che seguono una terminale (questa voce)** | **1.136**, in 413 aziende |
+>
+> Le 1.136 sono 836 `Early`, 215 `Later` e 85 senza stadio, e ripartono da un
+> `Out` in 611 casi e da un `Exit` in 525: aziende date per fallite che prendono
+> un altro round, o acquisite che continuano a raccogliere.
+>
+> **Perché si elimina anche l'anno dell'uscita, e perché è giusto.** Il panel
+> pubblicato non contiene **nessuna** riga con stadio `Out` o `Exit` (verificato
+> su `data/raw/panel.csv.gz`: solo `Early`, `Later` e nullo), e l'esito resta nel
+> target attraverso `GrowthNextStageGroup`, che il blocco 6.2 calcola **prima**
+> del troncamento. *Controprova: tenendo la riga dell'uscita, **198 aziende
+> cambiano etichetta** — 133 da `Out` a `Early`, 54 da `Exit` a `Out`, 9 da
+> `Exit` a `Early` — perché `TargetAge` si sposta di +1 e finisce sulla riga
+> terminale, dove lo stadio futuro punta alle righe post-uscita della voce M18.
+> Un'azienda uscita verrebbe etichettata come non uscita.*
+>
+> L'ordine fra 6.2 e 6.3 è quindi un vincolo, non un dettaglio. *Misurato: 5.364 righe (il troncamento ne elimina 119.301 in
 tutto, da 1.001.625 a 882.324, su 39.622 aziende).* Un'azienda che risulta
 «Out» e poi ha un altro deal viene troncata al primo Out, e la sua vita
 successiva scompare. È coerente con l'idea che l'uscita sia assorbente (M16),

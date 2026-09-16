@@ -113,8 +113,9 @@ Sul notebook **leggero**, e in ordine di pipeline.
 | 4 | **M12** `Zero_Invested` | **eliminata** (2026-09-16): leakage, e il panel non cambia |
 | 4 | **M14** date inventate · **M25** deal che evaporano | **fatto** (2026-09-16): passaggio 4 esteso, elenco delle aziende salvato |
 | 4 | **M26** attributi degli investitori non temporizzati (voce nuova) | da decidere |
-| 5 | M1 `GrowthStage` mescola stato e storia · M16 | da fare |
-| 6 | M18 troncamento | da fare |
+| 5 | **M1** `GrowthStage` mescola stato e storia | **decisa** (2026-09-16): la cascata si tiene, si dichiara |
+| 5 | **M16** `cumany` rende gli stadi monotoni | **decisa** (2026-09-16): si tiene, si dichiara |
+| 6 | **M18** troncamento | **decisa** (2026-09-16): si tiene, e' cio' che rende corretto il target |
 | 7 | M20, M21, M22, M23, M24 · M2 vintage | da fare |
 | trasversale | **M0** attributi delle persone non temporizzati | **fatto** (2026-09-15): esperienza e istruzione, team e CEO · il CEO dal board team resta da valutare |
 | dopo | M13: `TotalRaised` in `preprocessing.py`, rigenerare i dataset e i run | da fare |
@@ -409,6 +410,84 @@ Con questo il notebook **non legge piu' nessun flag** `fix_*`: sono rimasti in
 `PanelConfig` solo per `build_panel.ipynb`. Tolti anche gli import inutilizzati
 (`scale_r`, `BUG_FLAGS`) e il parquet `data/interim_light/db1.parquet`, che
 nessuna cella scrive o legge piu'.
+
+**2026-09-16 — M18, il troncamento si tiene.** Elimina 105.786 righe: 39.698
+sono l'anno dell'uscita, 64.952 anni successivi gia' terminali, **1.136 righe non
+terminali che seguono un'uscita** (413 aziende). Togliere anche l'anno
+dell'uscita non e' un difetto ma la condizione perche' il target sia corretto:
+l'esito resta in `GrowthNextStageGroup`, calcolato in 6.2 **prima** del
+troncamento, e il panel pubblicato infatti non ha nessuna riga `Out` o `Exit`.
+*Controprova: tenendo quella riga, 198 aziende cambiano etichetta (133 da Out a
+Early, 54 da Exit a Out, 9 da Exit a Early), perche' `TargetAge` si sposta di +1
+e cade sulla riga terminale, il cui stadio futuro punta alle righe post-uscita.*
+
+**2026-09-16 — M16, la cumulata degli stadi si tiene.** *Misurato: il 70,0%
+degli anni-azienda non ha nessun round, e con i soli round dell'anno lo stadio
+sarebbe nullo sul 70,2% delle righe invece che sul 26,5%.* Senza `cumany` il
+target non starebbe in piedi. Le righe in cui i round dell'anno direbbero uno
+stadio piu' basso sono 20.747 (2,3%) in 14.749 aziende: 2.727 hanno il cumulato
+gia' terminale e le elimina il troncamento della fase 6; le altre 18.020 sono
+aziende gia' cresciute che prendono un grant o un round da acceleratore o angel,
+classificati `Preseed`. Alternativa non adottata: affiancare allo stadio cumulato
+una colonna con lo stadio dei soli round dell'anno.
+
+**2026-09-16 — M1, la cascata di `GrowthStage` si tiene.** Nei primi tre rami
+`OwnershipStatus` (lo stato attuale, agganciato al solo anno della sua data)
+concorre con i flag storici. *Misurato sulla pipeline corrente: lo stato e'
+valorizzato su 116.527 righe (12,8%), una per azienda, e fa scattare un ramo
+terminale da solo — con il flag storico falso — in **1.928 righe**: 1.664 «Out of
+Business», 195 acquisizioni, 69 quotazioni.*
+
+*Controprova eseguita con i tre rami basati solo sui flag: il panel passa da
+802.148 a 805.104 righe (+2.956), le aziende da 116.312 a 116.444, il dataset da
+32.752 a 32.797 aziende, il target «Out» da 8.659 a 8.634.*
+
+**Si tiene** perche' quelle 1.664 aziende sono fallimenti reali che nessun deal
+registra: senza lo stato resterebbero nel panel come se fossero vive, e il target
+direbbe «non uscita» a un'azienda chiusa. Lo stato entra solo nell'anno della
+propria data, che per fallimenti e acquisizioni e' la data dell'evento: nessun
+salto temporale. L'unico ramo discutibile resta `Exit_Public` (69 righe), dove la
+data dello stato puo' non essere quella della quotazione. Da dichiarare
+nell'articolo.
+
+**2026-09-16 — M26, investitori temporizzati dietro l'interruttore.** Il blocco
+4.1 puo' ricostruire `TotalInvestments` e `MedianRoundAmount` anno per anno dai
+deal datati dell'estrazione, agganciandoli a ogni partecipazione con un join asof
+sull'anno del deal. `TEMPORIZZA_INVESTITORI` parte **spento**: il default resta la
+fotografia. *Verificato: a interruttore spento il panel e' identico bit per bit; a
+interruttore acceso cambiano solo le due colonne attese.*
+
+| | fotografia | temporizzata |
+|---|---:|---:|
+| `MeanTotalInvestments_cum`, mediana | 129,00 | 26,00 |
+| `MeanMedianRoundAmount_cum`, mediana | 1,05 | 0,95 |
+| righe valorizzate nel panel | 64,4% e 62,2% | 50,8% e 46,9% |
+| correlazione fra le due versioni | — | 0,676 e 0,176 |
+| valori mancanti nel dataset dei modelli | 15,5% e 19,6% | **44,4% e 50,3%** |
+
+**Conseguenza da tenere presente:** oltre il 40%, `handle_missing_values` scarta
+la feature. Accendere l'interruttore oggi equivale quindi a togliere le due
+feature dai modelli, a meno di alzare quella soglia. La decisione su quale
+versione pubblicare si prende con i risultati dei modelli in mano.
+
+**2026-09-16 — due interruttori per rifare il panel CON il look-ahead.** Nella
+cella di import ci sono `TEMPORIZZA_PERSONE` e `TEMPORIZZA_INVESTITORI`, veri per
+default. A False gli attributi tornano a essere la fotografia alla data di
+estrazione: nei blocchi 2b.1bis e 5.6 il join per (persona, anno) diventa un join
+per persona sull'**ultima riga** delle tabelle, che e' proprio il valore alla data
+di estrazione (lo dimostrano i controlli 2a.3ter e 2a.5bis). A interruttore spento
+anche la standardizzazione torna quella dell'R, calcolata per coppia
+(azienda, persona) invece che per (persona, anno).
+
+Servono al confronto che l'articolo puo' portare: stessa pipeline, stesse feature,
+cambia solo cosa si sapeva all'epoca. *Verificato: con gli interruttori accesi il
+panel e' identico bit per bit a prima; nel ramo spento l'indice di esperienza e il
+titolo di studio tornano costanti nel tempo per ogni persona.*
+
+**Attenzione:** riportano indietro solo la temporizzazione. Le altre correzioni
+(deduplica, `EndDate`, taglio a `MaxYear`, date dei deal, `Zero_Invested`,
+`Percent_Females`, `IsFounder`) restano. Il panel originale resta
+`build_panel.ipynb`, congelato.
 
 **2026-09-16 — M12 `Zero_Invested` eliminata.** La regola metteva a 0 gli importi
 mancanti dei 21 tipi di round che non li dichiarano quasi mai, con una soglia
