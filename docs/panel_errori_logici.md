@@ -1,6 +1,6 @@
 # Panel — errori logici, differenze implementative, peso morto
 
-Data: 2026-09-10 · riverificato il 2026-09-11 · fase 2 chiusa nel leggero il 2026-09-14
+Data: 2026-09-10 · riverificato il 2026-09-11 · fase 2 chiusa nel leggero il 2026-09-14 · M0 corretto il 2026-09-15
 Stato: documento di lavoro per la revisione fase per fase
 
 Questo file è il registro di tutto ciò che, nella pipeline di costruzione del
@@ -83,11 +83,21 @@ numeri in `docs/panel_revisione_stato.md`, «Registro: fase 2 del leggero».
   left join in 2b.3. Il panel coincide con lo scheletro.
 - In `db3` entrano solo le aziende dello scheletro.
 
+**2026-09-15 — M0 corretto nel leggero.** Esperienza e istruzione delle persone
+sono ricostruite anno per anno dalle tabelle di dettaglio e agganciate dopo
+l'espansione, per il team (2b.1bis) e per il CEO (5.6). Vedi il registro in
+`docs/panel_revisione_stato.md`.
+
 ---
 
 ## Trasversale — la voce più importante
 
 ### M0 — gli attributi delle persone non sono temporizzati
+
+> **Corretto nel notebook leggero il 2026-09-15**, per esperienza e istruzione,
+> sia del team sia del CEO. Dettaglio, numeri ed effetto sul panel in
+> `docs/panel_revisione_stato.md`, «Registro: M0 nel leggero». Resta da valutare
+> il CEO ricavato dai titoli del board team, che riempirebbe gli anni senza CEO.
 
 **Dove:** fasi 2a, 2b e 5.
 
@@ -137,12 +147,19 @@ PersonEducationRelation.csv PersonID, Degree, Major_Concentration, Institute,
                             GraduatingYear
 ```
 
-Con `StartDate`/`EndDate` si contano le posizioni **attive all'anno Y** invece
-del totale corrente; con `GraduatingYear` si prende il titolo più alto
-**conseguito entro l'anno Y**. `Person.csv` invece non ha date: i suoi otto
-contatori sono fotografie e vanno abbandonati, non corretti. È l'intervento più
-costoso di tutta la lista e va valutato a sé: **da misurare** quanto
-cambierebbe.
+Con `StartDate`/`EndDate` si contano le posizioni **attive all'anno Y** invece del
+totale corrente; con `GraduatingYear` si prende il titolo più alto **conseguito
+entro l'anno Y**.
+
+> **Correzione rispetto alla prima stesura.** Qui c'era scritto che gli otto
+> contatori di `Person.csv` «vanno abbandonati, non corretti» perché la tabella
+> non ha date. **È falso**: ognuno si ricostruisce esattamente dalla sua tabella
+> di dettaglio (`PersonPositionRelation`, `PersonBoardSeatRelation`,
+> `PersonAdvisoryRelation`, `PersonAffiliatedDealRelation`,
+> `PersonAffiliatedFundRelation`), che le date ce l'ha. *Verificato sulle 404.468
+> persone di `db3`: i conteggi coincidono con i contatori per 404.461, e le 7
+> differenze sono incoerenze interne a PitchBook.* L'intervento è quindi molto
+> meno costoso di quanto stimato, ed è stato fatto il 2026-09-15.
 
 ### M1 — `GrowthStage` mescola stato attuale e storia
 
@@ -1082,7 +1099,7 @@ sembrava grave. La colonna «arriva» usa le tre etichette del cancello
 
 | # | voce | perché conta | arriva |
 |---|---|---|---|
-| 1 | **M0** attributi delle persone non temporizzati | informazione dal futuro dentro **tre** delle 47 feature, in un articolo sul look-ahead bias | **alle 47** |
+| 1 | **M0** attributi delle persone non temporizzati — **corretto il 2026-09-15** | era informazione dal futuro dentro **tre** delle 47 feature; ruoli e titoli ora si contano fino all'anno della riga | **alle 47** |
 | 2 | **M14 + M25** date dei deal | 10,9% delle date inventate, 5% dei deal che evaporano; tocca il target e il campione | **alle 47** |
 | 3 | **M20 / M22 / M23** competitor temporizzati | `MaxYear` come proxy di «viva», zero come riempimento: bias sistematico su tre feature | **alle 47** |
 | 4 | **M2** vintage competitor | i risultati pubblicati non sono riproducibili su quelle tre feature | **alle 47** |

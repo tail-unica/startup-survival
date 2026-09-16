@@ -1,7 +1,8 @@
 # Panel — stato della revisione fase per fase
 
-Ultimo aggiornamento: 2026-09-14 (fase 2 del notebook leggero: board team,
-finestre di presenza, lunghezza del panel)
+Ultimo aggiornamento: 2026-09-15 (fase 2 del notebook leggero: board team,
+finestre di presenza, lunghezza del panel, e M0: esperienza e istruzione
+temporizzate)
 
 Questo file è il punto di ripresa. Se la sessione di lavoro si interrompe,
 basta questo file più `git log` per riprendere senza ricostruire niente.
@@ -111,7 +112,7 @@ Sul notebook **leggero**, e in ordine di pipeline.
 | 5 | M1 `GrowthStage` mescola stato e storia · M16 | da fare |
 | 6 | M18 troncamento | da fare |
 | 7 | M20, M21, M22, M23, M24 · M2 vintage | da fare |
-| trasversale | **M0** attributi delle persone non temporizzati | da fare |
+| trasversale | **M0** attributi delle persone non temporizzati | **fatto** (2026-09-15): esperienza e istruzione, team e CEO · il CEO dal board team resta da valutare |
 | dopo | M13: `TotalRaised` in `preprocessing.py`, rigenerare i dataset e i run | da fare |
 
 **Cadute con le fasi 3a e 3b**, che nel leggero non esistono: B4, B8, X11/X23
@@ -210,7 +211,7 @@ pipeline, sul notebook leggero. Le voci ancora aperte che lo riguardano sono
 | celle di codice | 91 | **45** |
 | CSV letti | 13 | **9** |
 | colonne di `Company.csv` | 39 | **11** |
-| colonne di `db3` | 54 | **19** |
+| colonne di `db3` | 54 | **10** |
 | aggregati di team | 23 | **13** |
 | colonne del panel | 117 | **53** |
 | tempo di esecuzione | ~8 min | **72 s** |
@@ -295,7 +296,84 @@ Effetto sul panel finale:
 anno (M0) mantenendo la stessa costruzione; gli attributi datati andranno
 agganciati per (persona, anno) dopo l'espansione della fase 2b.
 
+### Registro: M0 nel leggero, 2026-09-15
+
+Gli attributi delle persone non sono piu' fotografie alla data di estrazione.
+Tutte le decisioni sono scritte direttamente nel codice, senza flag.
+
+**Esperienza (2a.3bis, nuova cella).** Gli 8 contatori di `Person.csv` si
+ricostruiscono da cinque tabelle con una riga per ruolo: `PersonPositionRelation`,
+`PersonBoardSeatRelation`, `PersonAdvisoryRelation`,
+`PersonAffiliatedDealRelation`, `PersonAffiliatedFundRelation` (+ `Fund.csv` per
+il `Vintage` e `Investor.csv` per gli anni di fondazione). Ogni ruolo diventa un
+evento con un anno, e l'esperienza all'anno Y e' il numero di ruoli iniziati
+entro Y: la data di fine non serve. **918.698 eventi** per 404.468 persone,
+riassunti in `esperienza_persona_anno.parquet` (663.769 righe).
+
+L'anno di un ruolo: la data vera; se manca l'anno di fondazione dell'entita'
+(limite inferiore, non data vera); se manca anche quello, anno 0 = "conta
+sempre". Per i fondi, la piu' recente fra `Vintage` e l'ingresso della persona
+nella societa' d'investimento.
+
+| gruppo | data vera | fondazione dell'entita' | sempre |
+|---|---:|---:|---:|
+| posizioni | 347.122 | 110.062 | 18.788 |
+| seggi | 142.653 | 52.288 | 12.593 |
+| altri ruoli | 220.567 | 10.059 | 4.566 |
+
+**Controllo (2a.3ter, nuova cella).** Ogni contatore di `Person.csv` contro le
+righe della sua tabella (attuali con `IsCurrent` = "Yes", passati con "No").
+Coincidono per 404.461 persone su 404.468. Le **7 differenze sono incoerenze di
+PitchBook**, sempre di un ruolo in piu' nella tabella: 5 nascono da un contatore
+vuoto (e `Person.csv` scrive zero lasciando la cella vuota: non esiste un solo
+"0" nel file), 2 no (Dan Boneh e David Spitz, un ruolo passato da advisor).
+Vince la tabella dei ruoli, che e' la fonte piu' completa.
+
+**Istruzione (2a.5, riscritta; 2a.6; controllo in 2a.5bis).** Per ogni persona e
+ogni anno in cui ha preso un titolo, l'aggregazione dell'R sui soli titoli
+conseguiti entro quell'anno: `istruzione_persona_anno.parquet`, 254.196 righe per
+173.282 persone, di cui **59.925 cambiano nel tempo**. Un titolo senza
+`GraduatingYear` (35%) conta sempre. I titoli ricavati dal nome ("Ph.D", " JD",
+" MD") diventano tre flag in `db3` e si applicano in ogni anno. Il controllo
+verifica che l'ultima riga di ogni persona coincida **colonna per colonna** con
+l'aggregazione di tutti i titoli, cioe' con la versione dell'R.
+
+**Aggancio (2b.1bis, nuova cella; 5.6).** Dopo l'espansione, due join asof su
+(persona, anno <= Y) danno esperienza e istruzione dell'anno. `WorkExperienceIndex`
+si calcola con la formula dell'R invariata (log(x+1), standardizzazione, media
+dei tre gruppi); media e deviazione si calcolano sulle coppie (persona, anno)
+distinte e si salvano in `parametri_esperienza.parquet`, perche' 5.6 usa gli
+stessi numeri per `WorkExperienceIndex_CEO` e `Highest_Degree_CEO`.
+
+**Effetto sul panel.** Righe, aziende e colonne non cambiano; cambiano i valori.
+
+| colonna | righe cambiate | prima -> dopo |
+|---|---:|---|
+| `WorkExp_Idx_Mean` | tutte | da piatta nel tempo a crescente con l'eta': a eta' 0 -0,157 -> -0,108, a 5+ anni da -0,11 a +0,06. Correlazione con i valori vecchi 0,88 |
+| `WorkExperienceIndex_CEO` | tutte | correlazione 0,85 |
+| `Highest_Degree_Mean` | 15.781 (2,0%) | valorizzata su 519.956 -> 517.369 righe |
+| `Avg_Earliest_Year` | 12.194 (1,5%) | media 1999,42 -> 1999,18 |
+| `Institute` | 19.884 (2,5%) | valorizzata su 405.096 -> 401.689 righe |
+| flag delle aree | 0,0%-0,6% | `Is_Eco` vera su 328.185 -> 323.459 righe |
+| `Highest_Degree_CEO` | 2.341 (0,3%) | media 3,809 -> 3,806 |
+
+I livelli assoluti dell'indice non si confrontano con quelli vecchi: la
+standardizzazione ora e' calcolata sulle coppie (persona, anno) invece che sulle
+righe di `db3`. Conta il profilo per eta'.
+
+**Un difetto trovato e corretto.** `unique()` restituisce le righe in un ordine
+che cambia fra un'esecuzione e l'altra, e la media della standardizzazione
+cambiava nelle ultime cifre (1e-15). *Verificato: 8 ripetizioni davano 8
+risultati; ordinando le coppie prima del calcolo, uno solo.* Con l'ordinamento,
+**due esecuzioni complete danno un panel identico in ogni colonna**.
+
+**Cosa resta di M0.** I ruoli senza data contano dall'anno di fondazione
+dell'entita' (limite inferiore) o da sempre; la standardizzazione usa tutte le
+coppie (persona, anno), quindi anche anni successivi di altre aziende; il CEO
+dal board team e' rimandato (vedi le decisioni aperte).
+
 ## Decisioni prese
+
 
 1. **M11 — l'imputazione RandomForest è eliminata**, non sospesa. Il modello è
    sbagliato alla radice (nessun `set.seed`, addestrato su tutti gli anni,
