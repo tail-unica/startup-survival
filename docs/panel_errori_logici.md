@@ -141,6 +141,10 @@ Due precisazioni rispetto alla prima stesura, che ne elencava quattro:
 - **`Avg_Earliest_Year` non è look-ahead.** È l'anno di laurea **più antico**
   della persona: guarda indietro, non avanti.
 
+**Lo stesso problema esiste sugli investitori**, ed è la voce **M26** della fase
+4: `TotalInvestments` e `MedianRoundAmount` sono fotografie alla data di
+estrazione e finiscono in due feature.
+
 **Perché la segnalo per prima:** l'articolo è sul look-ahead bias. Questa è
 informazione dal futuro che entra nelle feature, e non passa da nessuno dei
 dieci bug censiti — è nel disegno della pipeline, non in un suo difetto.
@@ -836,7 +840,27 @@ I checkpoint C–F le dichiarano come `expected_missing` e restano verdi.
 Conseguenza operativa: cadono con la RF anche X15 (`UndisclosedAmountFlag`) e
 X16 (`DealSynopsis`), che servivano solo a selezionare le righe da imputare.
 
-**M12 — la regola `Zero_Invested`.**
+**M12 — la regola `Zero_Invested`** — *eliminata il 2026-09-16 nel notebook
+leggero.*
+
+> **Perché.** La soglia «questo tipo di round non dichiara mai l'importo» è
+> calcolata su **tutti i deal del dataset, anni futuri compresi**: il valore
+> scritto in una riga del 2012 dipende da come sono fatti i deal del 2023. È la
+> stessa famiglia di M11, ed è leakage.
+>
+> **Costo della rimozione: zero.** *Verificato eseguendo la pipeline senza la
+> regola: il panel finale è identico, nessuna colonna cambia.* Il motivo è che
+> l'unica consumatrice di `TotalInvestedCapital` è la somma di 4.8, che tratta i
+> mancanti come zero: mettere zero prima non sposta niente. La regola toccava
+> 60.898 importi su 21 tipi di round.
+>
+> **Quando tornerebbe a contare.** Solo se il panel riprendesse una variante di
+> `TotalRaised` che conserva i nulli (`TotalRaised_NA`, `TotalRaised_any`): lì la
+> distinzione fra «zero» e «non dichiarato» esiste, e la regola deciderebbe da
+> che parte mettere 60.898 round. *Misurato sul dataset dei modelli: con
+> `TotalRaised_NA` sarebbero vuote il 50,5% delle righe, con `TotalRaised_any` il
+> 57,5%, quindi oltre la soglia del 40% di `handle_missing_values`: la feature
+> verrebbe scartata a meno di cambiare quella soglia.*
 I tipi di deal in cui l'importo manca in oltre il 90% dei casi ricevono 0
 invece di NA. È una regola derivata da **statistiche globali su tutto il
 dataset**: stessa famiglia di M11, più mite. È **mantenuta** perché alimenta
@@ -844,6 +868,25 @@ dataset**: stessa famiglia di M11, più mite. È **mantenuta** perché alimenta
 è zero» non è un'imputazione modellistica. Da decidere se tenerla.
 
 **M13 — `TotalRaised` confonde tre situazioni diverse. DECISA.**
+
+> **Aggiornamento del 2026-09-16: al panel si aggiunge un indicatore.** Restava
+> il problema che `TotalRaised` scrive 0 sia dove non si è raccolto sia dove
+> l'importo non è dichiarato, e *misurato: in metà delle righe del dataset
+> l'importo non è dichiarato*. Le varianti che conservano il nullo non sono
+> praticabili così com'è il codice a valle: `TotalRaised_NA` sarebbe vuota sul
+> 50,5% delle righe e `TotalRaised_any` sul 57,5%, quindi oltre la soglia del 40%
+> di `handle_missing_values`, che le scarterebbe.
+>
+> Il blocco 4.8 calcola quindi **`UndisclosedAmountShare`**: la quota di round di
+> quell'anno con l'importo non dichiarato, fra 0 e 1, zero negli anni senza
+> round. Non è mai nulla, quindi supera la soglia, e permette al modello di
+> distinguere «non ha raccolto» da «non sappiamo quanto». È la 54ª colonna del
+> panel, l'unica che non viene da `example_panel.csv`.
+>
+> **Da fare quando si aggiorna `src/preprocessing.py`** (oggi seleziona ancora
+> `TotalRaised_Est`, che non esiste più): selezionare `TotalRaised` **e**
+> `UndisclosedAmountShare`. Per tornare al comportamento precedente basta
+> togliere la colonna.
 Vale 0 sia quando non c'è stato nessun deal, sia quando c'è stato un deal a
 importo zero, sia quando c'è stato un deal di importo **non dichiarato**.
 `TR_D` distingue il primo caso; `TotalRaised_NA` e `TotalRaised_any` il terzo.
@@ -868,6 +911,18 @@ importo zero, sia quando c'è stato un deal di importo **non dichiarato**.
 che determina `GrowthStage`, cioè il target. Quattro passaggi successivi
 provano a inventarne una (`1_Arrange_DB.R:917-976`). *Misurato:*
 
+> **Banco di prova (2026-09-16).** Ogni passaggio è stato verificato sui round
+> che una data ce l'hanno, fingendo che mancasse: 1 → 94,5% di stime esatte,
+> 2 → 90,4%, 3 → **30,9%** (anticipa in media di 1,85 anni; l'età reale al primo
+> round ha mediana 1), 4 → 45,9%. **I passaggi 1, 2 e 3 restano come sono**: il 3
+> è una scelta dell'economista che ha scritto la pipeline.
+>
+> **Il passaggio 4 è stato riscritto il 2026-09-16** nel notebook leggero: cerca
+> il round datato più vicino invece del solo vicino immediato, e distribuisce
+> uniformemente i round dello stesso buco. Recupera **3.233 round** (i mancanti
+> passano da 16.860 a 13.627) senza spostare di un anno nessun round già datato.
+> Dettaglio e numeri in `docs/panel_revisione_stato.md`.
+
 | passaggio | deal riparati | quota | che assunzione è |
 |---|---:|---:|---|
 | 1 — data dallo stato «Out of Business» | 1.210 | 0,4% | plausibile |
@@ -885,7 +940,19 @@ del primo stadio `Early` che `build_windowed_dataset` usa per decidere chi
 entra nel campione (`StartingAge <= 2`). Un'azienda il cui primo round non ha
 data viene dichiarata d'ufficio «Early a zero anni» ed entra.
 
-**M25 — 16.690 deal escono dal panel in silenzio.** *(voce nuova, 2026-09-11;
+**M25 — i deal senza data escono dal panel in silenzio.** *(dal 2026-09-16 sono
+**13.627**: 11.561 dopo l'ultimo round datato, 1.213 prima del primo, 853 in
+aziende senza nessun round datato. Verificato che le altre colonne di data di
+`Deal.csv` non aiutano: `AnnouncedDate` copre lo 0,9% dei round senza data, e la
+data di uscita come limite destro copre il 2,5% dei casi senza essere piu'
+accurata.)*
+
+> **Decisione del 2026-09-16: si tiene il comportamento dell'R e si registra il
+> danno.** Il blocco 4.5bis del notebook leggero scrive
+> `aziende_round_senza_data.parquet`, con una riga per azienda e le colonne
+> `round_totali`, `round_senza_data`, `round_vc_senza_data`, `perde_tutti`.
+> *Misurato: 12.042 aziende, di cui 757 perdono tutti i round.* Il panel non
+> cambia; l'elenco serve al controllo di robustezza nell'articolo. *(voce nuova, 2026-09-11;
 il meccanismo era censito come trappola di traduzione T26, ma non è solo una
 trappola.)*
 Dopo i quattro passaggi di M14 restano **16.690 deal senza data, il 5,0% del
@@ -919,6 +986,48 @@ dalle colonne temporali. Nessuna delle tre è gratis.
 fondazione i deal datati prima. È un evento **spostato**, non scartato.
 *Misurato: **143 deal su 332.818, su 122 aziende**.* Trascurabile — è M14 e
 M25 che contano, non questa.
+
+**M26 — gli attributi degli investitori non sono temporizzati.** *(voce nuova,
+2026-09-16.)*
+È M0, ma sugli investitori invece che sulle persone, e non era censita.
+
+`Investor.csv` dà due grandezze, entrambe **alla data di estrazione**:
+- **`TotalInvestments`** — quanti investimenti ha fatto quell'investitore in
+  tutta la sua storia e in tutto l'universo PitchBook. *Misurato: mediana 2,
+  massimo 9.927, vuoto sullo 0,1% degli investitori.*
+- **`MedianRoundAmount`** — la dimensione mediana dei round a cui partecipa, in
+  milioni. *Misurato: mediana 2,70, vuoto sul 18,8%.*
+
+Il percorso: la fase 4.2 ne fa la media **sui soli investitori nuovi** di ogni
+round; la 4.8 la media sui round dell'anno; la 5.5 la media ponderata cumulata
+per numero di investitori nuovi. Ne escono `MeanTotalInvestments_cum` e
+`MeanMedianRoundAmount_cum`, che significano «quanto erano grandi e attivi, in
+media, gli investitori che hanno messo soldi in questa azienda fino a
+quest'anno».
+
+Nella riga del 2012 compare quindi il numero di investimenti che quel fondo ha
+fatto **fino al 2024**, non fino al 2012.
+
+**Propagazione: arriva alle 47.** *Misurato sul dataset a finestra ricostruito
+dal panel corrente (32.735 aziende): `MeanTotalInvestments_cum` è vuota sul
+15,6% delle righe e `MeanMedianRoundAmount_cum` sul 19,7%, quindi entrambe
+restano sotto la soglia del 40% di `handle_missing_values` e sopravvivono. Sono
+anche nei file pubblicati `data/processed/dataset_window.csv` e
+`dataset_nowindow.csv`.*
+
+**Non è ricostruibile come per le persone.** *Misurato: il conteggio ricostruito
+da `DealInvestorRelation` è ≤ a quello dichiarato per il 99,9% degli
+investitori, con copertura media del 67,6%; ma chi ha copertura 100% ha mediana
+**1** investimento dichiarato, mentre chi ha copertura parziale ne ha mediana
+**10**. In media `Investor.csv` dichiara 20,1 investimenti e l'estrazione ne
+vede 5,5.* Il motivo è che l'estrazione contiene i deal **delle aziende del
+campione**, non tutti quelli dell'investitore: i fondi grandi risulterebbero
+molto più piccoli del vero.
+
+Tre strade, **da decidere**: (a) tenerle e dichiararlo nell'articolo; (b)
+sostituirle con «investimenti fatti nel campione entro l'anno Y», temporizzata
+ma di significato diverso e distorta verso il basso per i fondi grandi; (c)
+eliminarle.
 
 ### Candidati all'eliminazione
 
@@ -1149,6 +1258,7 @@ sembrava grave. La colonna «arriva» usa le tre etichette del cancello
 | 11 | **X15 / X16** `UndisclosedAmountFlag` e `DealSynopsis` | morti con l'eliminazione della RandomForest | al panel |
 | 12 | **B2** `Is_Other`, **B3** `StageBlock`, **X21** | colonne inutilizzabili, nessuna fra le feature | al panel |
 | 13 | **M15** deal spostati sull'anno di fondazione | 143 deal su 122 aziende | **alle 47** |
+| 14 | **M26** attributi degli investitori non temporizzati | fotografia alla data di estrazione dentro due feature; non ricostruibile dall'estrazione | **alle 47** |
 
 **Chiuse, decise o declassate** — restano nel file per tracciabilità, fuori
 dalla classifica:

@@ -110,7 +110,9 @@ Sul notebook **leggero**, e in ordine di pipeline.
 | 2b | **M7** denominatore di `Percent_Females` | **fatto** (2026-09-16) |
 | 2b | **M8** founder pesati come gli altri | **decisa** (2026-09-16): si dichiara nell'articolo |
 | 4 | **B1 soglia, seconda occorrenza** | **fatto** (2026-09-11) |
-| 4 | M12 `Zero_Invested` · M14 date inventate · M25 deal che evaporano | da fare |
+| 4 | **M12** `Zero_Invested` | **eliminata** (2026-09-16): leakage, e il panel non cambia |
+| 4 | **M14** date inventate · **M25** deal che evaporano | **fatto** (2026-09-16): passaggio 4 esteso, elenco delle aziende salvato |
+| 4 | **M26** attributi degli investitori non temporizzati (voce nuova) | da decidere |
 | 5 | M1 `GrowthStage` mescola stato e storia · M16 | da fare |
 | 6 | M18 troncamento | da fare |
 | 7 | M20, M21, M22, M23, M24 · M2 vintage | da fare |
@@ -194,15 +196,16 @@ gia' dimostrata e registrata qui.
 
 | | valore |
 |---|---:|
-| righe | 802.193 |
+| righe | 802.148 |
 | aziende | 116.312 |
 | colonne | 53 |
-| righe con dati di team | 749.892 |
-| righe con `GrowthStageGroup` | 561.195 |
+| righe con dati di team | 749.847 |
+| righe con `GrowthStageGroup` | 561.333 |
 | righe con `Age < 0` | 0 |
-| tempo di esecuzione | 108 s, picco 1,76 GB |
+| tempo di esecuzione | 2 min 41 s, picco 2,11 GB |
 
-*Aggiornato il 2026-09-14, dopo le correzioni della fase 2 (registro qui sotto).*
+*Aggiornato il 2026-09-16, dopo M0, le correzioni della fase 2 e il passaggio 4
+delle date dei deal (registri qui sotto).*
 
 **Prossimo passo: riprendere le correzioni dal catalogo**, in ordine di
 pipeline, sul notebook leggero. Le voci ancora aperte che lo riguardano sono
@@ -406,6 +409,91 @@ Con questo il notebook **non legge piu' nessun flag** `fix_*`: sono rimasti in
 `PanelConfig` solo per `build_panel.ipynb`. Tolti anche gli import inutilizzati
 (`scale_r`, `BUG_FLAGS`) e il parquet `data/interim_light/db1.parquet`, che
 nessuna cella scrive o legge piu'.
+
+**2026-09-16 — M12 `Zero_Invested` eliminata.** La regola metteva a 0 gli importi
+mancanti dei 21 tipi di round che non li dichiarano quasi mai, con una soglia
+calcolata su tutti i deal del dataset, anni futuri compresi: e' leakage, della
+stessa famiglia della RandomForest gia' eliminata. *Verificato che toglierla non
+cambia nulla: il panel finale e' identico, nessuna colonna si muove, perche'
+l'unica consumatrice di `TotalInvestedCapital` e' la somma di 4.8 che tratta i
+mancanti come zero.* Il blocco 4.6 e' cancellato.
+
+**2026-09-16 — M13, aggiunto `UndisclosedAmountShare`.** `TotalRaised` scrive 0
+sia dove l'azienda non ha raccolto sia dove l'importo non e' dichiarato, e
+*misurato: in meta' delle righe del dataset l'importo non e' dichiarato*. Le
+varianti che conservano il nullo non sono praticabili: `TotalRaised_NA` sarebbe
+vuota sul 50,5% delle righe e `TotalRaised_any` sul 57,5%, oltre la soglia del
+40% di `handle_missing_values`. Il blocco 4.8 calcola quindi la **quota di round
+dell'anno con importo non dichiarato** (0 negli anni senza round, mai nulla):
+e' la 54a colonna del panel, l'unica che non viene da `example_panel.csv`, e la
+verifica delle invarianti lo mette in conto. Per tornare indietro basta togliere
+la colonna.
+
+**Da fare a valle:** `src/preprocessing.py` seleziona ancora `TotalRaised_Est`
+(che non esiste piu'): quando lo si aggiorna, vanno selezionate `TotalRaised` e
+`UndisclosedAmountShare`.
+
+**2026-09-16 — passaggio 4 della riparazione delle date, esteso (M14).** I
+quattro passaggi sono stati messi alla prova sui round che una data ce l'hanno,
+fingendo che mancasse:
+
+| passaggio | casi di prova | stima esatta | entro 1 anno |
+|---|---:|---:|---:|
+| 1 — data del fallimento | 20.956 | 94,5% | 97,6% |
+| 2 — data dell'acquisizione | 11.536 | 90,4% | 92,2% |
+| 3 — primo round all'anno di fondazione | 67.542 | 30,9% | 59,6% |
+| 4 — media fra i round vicini | 116.976 | 45,9% | 85,9% |
+
+**I passaggi 1, 2 e 3 restano invariati.** Il 3 anticipa in media di 1,85 anni
+(l'eta' reale al primo round ha mediana 1 e vale 0 solo nel 30,9% dei casi) e
+decide anche chi entra nel campione, perche' schiaccia 23.492 round sull'eta' 0;
+l'alternativa migliore misurata sarebbe «meta' fra fondazione e round
+successivo» (76,1% entro un anno contro 59,6%), **ma la regola e' una scelta
+dell'economista che ha scritto la pipeline e si tiene**.
+
+**Il passaggio 4 e' stato riscritto**, perche' aveva un limite tecnico: guardava
+solo la riga immediatamente precedente e successiva, quindi non faceva niente
+quando i round senza data erano due o piu' di fila. Ora cerca il round datato
+**piu' vicino** prima e dopo e distribuisce i round del buco **uniformemente**
+nell'intervallo, invece di dare a tutti la stessa stima.
+
+*Verificato sui round datati: con un buco da 2 round la stima esatta passa dal
+37,3% al 48,7% (entro un anno dall'81,1% all'88,9%); con un buco da 3 dal 31,0%
+al 44,6%. Con un solo round nel buco la formula coincide con quella dell'R,
+quindi gli 11.757 round gia' riparati non si muovono: verificato, zero round
+datati cambiano anno.* I limiti restano round veri: fondazione e ultimo anno
+dell'azienda non si usano.
+
+**Effetto:** 3.233 round recuperati in 1.453 aziende (435 round VC); i round
+senza data scendono da 16.860 a **13.627**.
+
+| | prima | dopo |
+|---|---:|---:|
+| righe del panel | 802.193 | 802.148 |
+| righe con stadio | 561.195 | 561.333 |
+| righe con dati di team | 749.892 | 749.847 |
+| aziende nel dataset dei modelli | 32.735 | 32.752 |
+| target Later | 6.549 | 6.588 |
+| target Early | 13.987 | 13.958 |
+
+**Cosa resta (M25):** 13.627 round senza data, di cui 11.561 dopo l'ultimo round
+datato, 1.213 prima del primo e 853 in aziende senza nessun round datato (le 757
+che spariscono dai modelli). Per questi servirebbero limiti artificiali
+(fondazione, ultimo anno), che nel banco di prova danno circa il 30% di stime
+esatte. *Verificato che le altre colonne di data di `Deal.csv` non aiutano:
+`AnnouncedDate` e' valorizzata solo sullo 0,9% dei round senza `DealDate`,
+`FiscalYear` sullo 0,2%, le date di registrazione su una manciata di casi.
+Verificata anche la data di uscita o fallimento come limite destro: copre solo il
+2,5% dei casi e, dove c'e', non e' migliore dell'ultimo anno di dati (23,4% di
+stime esatte contro 22,7%, con un bias peggiore), perche' i due limiti coincidono
+quasi sempre: `OwnershipStatusDate` e' una delle sei date che formano `MaxYear`.*
+
+**Decisione: ci si ferma qui, e si registra chi perde i round.** Il blocco 4.5bis
+scrive `aziende_round_senza_data.parquet` — una riga per azienda con
+`round_totali`, `round_senza_data`, `round_vc_senza_data` e `perde_tutti` — fuori
+dal panel, che non cambia di una riga ne' di una colonna. *Misurato: **12.042
+aziende**, di cui **757 perdono tutti i round**; 13.627 round persi, di cui 3.380
+VC.* Serve al controllo di robustezza dell'articolo.
 
 **Cosa resta di M0.** I ruoli senza data contano dall'anno di fondazione
 dell'entita' (limite inferiore) o da sempre; la standardizzazione usa tutte le
