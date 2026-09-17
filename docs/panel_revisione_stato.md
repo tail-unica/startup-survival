@@ -1,8 +1,8 @@
 # Panel — stato della revisione fase per fase
 
-Ultimo aggiornamento: 2026-09-15 (fase 2 del notebook leggero: board team,
-finestre di presenza, lunghezza del panel, e M0: esperienza e istruzione
-temporizzate)
+Ultimo aggiornamento: 2026-09-17 (fase 7: competitor dietro interruttore,
+colonne `_All` eliminate, `N_Similar` aggiunta — la revisione fase per fase è
+arrivata in fondo)
 
 Questo file è il punto di ripresa. Se la sessione di lavoro si interrompe,
 basta questo file più `git log` per riprendere senza ricostruire niente.
@@ -112,11 +112,11 @@ Sul notebook **leggero**, e in ordine di pipeline.
 | 4 | **B1 soglia, seconda occorrenza** | **fatto** (2026-09-11) |
 | 4 | **M12** `Zero_Invested` | **eliminata** (2026-09-16): leakage, e il panel non cambia |
 | 4 | **M14** date inventate · **M25** deal che evaporano | **fatto** (2026-09-16): passaggio 4 esteso, elenco delle aziende salvato |
-| 4 | **M26** attributi degli investitori non temporizzati (voce nuova) | da decidere |
+| 4 | **M26** attributi degli investitori non temporizzati | **implementata** (2026-09-16) come `TEMPORIZZA_INVESTITORI`, spento di default · resta aperto se accenderlo: a valle le due colonne superano il 40% di mancanti e verrebbero scartate |
 | 5 | **M1** `GrowthStage` mescola stato e storia | **decisa** (2026-09-16): la cascata si tiene, si dichiara |
 | 5 | **M16** `cumany` rende gli stadi monotoni | **decisa** (2026-09-16): si tiene, si dichiara |
 | 6 | **M18** troncamento | **decisa** (2026-09-16): si tiene, e' cio' che rende corretto il target |
-| 7 | M20, M21, M22, M23, M24 · M2 vintage | da fare |
+| 7 | **M20, M21, M22, M23, M24** competitor | **fatto** (2026-09-17): M22 e M23 risolte, M20/M21/M24 decise e da dichiarare · M2 misurata |
 | trasversale | **M0** attributi delle persone non temporizzati | **fatto** (2026-09-15): esperienza e istruzione, team e CEO · il CEO dal board team resta da valutare |
 | dopo | M13: `TotalRaised` in `preprocessing.py`, rigenerare i dataset e i run | da fare |
 
@@ -132,9 +132,11 @@ che la traduzione dall'R e' fedele (sei checkpoint verdi, quattordici confronti
 a divergenza zero) e non si tocca piu'. La pipeline su cui si lavora e'
 `build_panel_light.ipynb`.
 
-Produce **solo le 53 colonne di `data/raw/example_panel.csv`** — con
-`TotalRaised` al posto di `TotalRaised_Est` — e scrive in `data/interim_light/`
-per non toccare i parquet del panel completo. Ogni riga e' commentata.
+Produce **50 delle 53 colonne di `data/raw/example_panel.csv`** — con
+`TotalRaised` al posto di `TotalRaised_Est`, e senza le tre `*_All`, eliminate
+il 2026-09-17 — piu' le due aggiunte qui, `UndisclosedAmountShare` e
+`N_Similar`: **52 in tutto**. Scrive in `data/interim_light/` per non toccare i
+parquet del panel completo. Ogni riga e' commentata.
 
 **Passo 1 fatto: a flag spenti il panel leggero e' identico al completo.**
 *Verificato eseguendo tutte e 45 le celle: 882.324 righe x 53 colonne,
@@ -199,18 +201,17 @@ gia' dimostrata e registrata qui.
 |---|---:|
 | righe | 802.148 |
 | aziende | 116.312 |
-| colonne | 53 |
+| colonne | 52 |
 | righe con dati di team | 749.847 |
 | righe con `GrowthStageGroup` | 561.333 |
 | righe con `Age < 0` | 0 |
 | tempo di esecuzione | 2 min 41 s, picco 2,11 GB |
 
-*Aggiornato il 2026-09-16, dopo M0, le correzioni della fase 2 e il passaggio 4
-delle date dei deal (registri qui sotto).*
+*Aggiornato il 2026-09-17, dopo la fase 7 (registri qui sotto).*
 
-**Prossimo passo: riprendere le correzioni dal catalogo**, in ordine di
-pipeline, sul notebook leggero. Le voci ancora aperte che lo riguardano sono
-~12; quelle legate alle fasi 3a e 3b sono cadute con le fasi stesse.
+**La revisione fase per fase e' arrivata in fondo** (1 → 7). Quel che resta
+non e' piu' una fase del notebook ma una lista di questioni aperte: vedi
+«Decisioni aperte» in coda.
 
 | | completo | leggero |
 |---|---:|---:|
@@ -219,7 +220,7 @@ pipeline, sul notebook leggero. Le voci ancora aperte che lo riguardano sono
 | colonne di `Company.csv` | 39 | **11** |
 | colonne di `db3` | 54 | **10** |
 | aggregati di team | 23 | **13** |
-| colonne del panel | 117 | **53** |
+| colonne del panel | 117 | **52** |
 | tempo di esecuzione | ~8 min | **72 s** |
 
 Spariscono **due fasi intere**: la 3a (competitor statici, tutti sovrascritti
@@ -504,8 +505,9 @@ varianti che conservano il nullo non sono praticabili: `TotalRaised_NA` sarebbe
 vuota sul 50,5% delle righe e `TotalRaised_any` sul 57,5%, oltre la soglia del
 40% di `handle_missing_values`. Il blocco 4.8 calcola quindi la **quota di round
 dell'anno con importo non dichiarato** (0 negli anni senza round, mai nulla):
-e' la 54a colonna del panel, l'unica che non viene da `example_panel.csv`, e la
-verifica delle invarianti lo mette in conto. Per tornare indietro basta togliere
+e' una delle **due** colonne che non vengono da `example_panel.csv` —
+l'altra e' `N_Similar`, aggiunta il 2026-09-17 — e la verifica delle invarianti
+le mette in conto. Per tornare indietro basta togliere
 la colonna.
 
 **Da fare a valle:** `src/preprocessing.py` seleziona ancora `TotalRaised_Est`
@@ -579,6 +581,60 @@ dell'entita' (limite inferiore) o da sempre; la standardizzazione usa tutte le
 coppie (persona, anno), quindi anche anni successivi di altre aziende; il CEO
 dal board team e' rimandato (vedi le decisioni aperte).
 
+### Registro: fase 7, competitor, 2026-09-17
+
+**L'interruttore.** `TEMPORIZZA_COMPETITOR` si affianca a `TEMPORIZZA_PERSONE` e
+`TEMPORIZZA_INVESTITORI`, default acceso. **Le tre colonne `*_All` non esistono
+piu'**: la terna competitor e' una sola e il flag ne decide il contenuto. Acceso
+= concorrenti vivi quell'anno, con la controparte filtrata su `Company.csv`;
+spento = ogni informazione disponibile, nessuna finestra e nessun filtro.
+
+| | acceso | spento | R originale |
+|---|---:|---:|---:|
+| `N_Competitors` | 0,238 | 1,311 | 1,263 |
+| `Same_Country` | 0,071 | 0,141 | (era booleana) |
+| `SimilarityScoreMean` | 54,524 | 90,751 | 90,97 |
+| righe con >= 1 concorrente | 12,3% | 21,3% | 20,7% |
+| `N_Similar` medio | 1,127 | 9,992 | — |
+
+*Verificato eseguendo il notebook su entrambi i rami: 802.148 righe x 52 colonne
+e invarianti verdi in tutti e due, righe e aziende identiche. Il flag sposta
+solo i tre valori, che e' la proprieta' che serve all'ablazione.*
+
+**Perche' le `_All` sono sparite.** Erano calcolate **dopo** il filtro sulla
+controparte, quindi non erano la versione statica di niente: `N_Competitors_All`
+valeva 0,297 contro 1,263 dell'R, un fattore 4,3. Presentarla come «la versione
+senza temporizzazione» avrebbe attribuito alla temporizzazione un effetto che
+era in gran parte copertura del dato. Ora il ramo spento riproduce l'R.
+
+**Il paese della controparte** si legge da `SimilarCompanyHQCountry` nella
+tabella delle relazioni, non piu' da `Company.csv`: *e' presente nel 99,57%
+delle righe e sulle 228.894 coppie verificabili coincide con `Company.csv` sul
+100%*. Cosi' `Same_Country` resta calcolabile anche fuori estrazione.
+
+**`N_Similar`** (voce M22) e' il denominatore di `SimilarityScoreMean`.
+Additiva: eliminarla riporta allo schema a 51 colonne. Acceso vale 0 nel 41,3%
+delle righe — esattamente dove la media e' fabbricata — e 1 o 2 nel 76% delle
+righe in cui un valore c'e'. Spento e' **di fatto costante**: 10 su 801.507
+righe e 0 su 641, le uniche aziende a cui PitchBook non attribuisce nessuna
+simile.
+
+**M2, vintage dell'estrazione.** Le colonne competitor di `data/raw/panel.csv.gz`
+vengono da un download piu' vecchio. *Misurato ricalcolandole sugli stessi
+anni-azienda con l'estrazione di oggi: `N_Competitors` identica sul 94,5% delle
+righe (correlazione 0,896), `Same_Country` sul 98,0%, `SimilarityScoreMean` solo
+sul 35,7% (correlazione 0,492). Ma la scomposizione assolve i dati: sulle
+377.902 righe con un valore in entrambe le estrazioni il punteggio si sposta di
+**1,05 punti su 100** (correlazione 0,907), e il crollo viene tutto dalle
+**227.625 righe** che attraversano il confine 0 / non-0.* L'instabilita' era
+nella convenzione, non nella sorgente.
+
+**Attenzione a `data/raw/panel.csv.gz`:** non e' il panel R. E' l'output del
+notebook di temporizzazione dei competitor di Giulio (122 colonne, 882.324
+righe, `Same_Country` gia' come conteggio, ID rinumerati). Il panel R puro e'
+`data/reference/db_master_panel.csv.gz`, 121 colonne. Vanno rinominati o
+dichiarati: e' fra le decisioni aperte.
+
 ## Decisioni prese
 
 
@@ -605,9 +661,12 @@ dal board team e' rimandato (vedi le decisioni aperte).
    a sé.
 2. **Voci M14 e M25**: il 10,9% delle date dei deal è inventato e il 5% dei
    deal esce dal panel senza traccia. Tre opzioni, si decide alla fase 4.
-3. **Voce M2**: le sei colonne competitor di `data/raw/panel.csv.gz` vengono da
-   un altro download di `CompanySimilarRelation.csv`. Se salta fuori
-   l'estrazione giusta, il checkpoint F si chiude.
+3. **Voce M2**: le colonne competitor di `data/raw/panel.csv.gz` vengono da un
+   altro download di `CompanySimilarRelation.csv` — *confermato da Giulio il
+   2026-09-17: quel notebook girava su un'estrazione precedente*. L'effetto e'
+   misurato (registro fase 7): sui punteggi vale 1,05 punti, il resto e' il
+   confine 0 / non-0. Il checkpoint F non si chiudera' mai su quel file; da
+   decidere se rinominarlo, visto che **non e' nemmeno il panel R**.
 4. **Voci X11/X23**: la mappa Europa serve solo al checkpoint B. Si elimina
    quando la fedeltà smette di essere l'obiettivo.
 

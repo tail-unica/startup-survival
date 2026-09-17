@@ -1088,11 +1088,20 @@ cade X15, cade anche questa lettura.
 `Description`, `YearFounded`, `HQCity`, `HQCountry` e `MostLikelyFundraisIng`
 non vengono mai usate. *Nella traduzione non le ho portate.*
 
-**X18 — `PercentAcquired`.** Selezionata in `deals` e mai aggregata.
+**X18 — `PercentAcquired`.** ~~Selezionata in `deals` e mai aggregata.~~
+**Chiusa il 2026-09-17: non esiste più.** È caduta con lo sfoltimento del panel
+leggero, insieme alle altre colonne che nessuno legge. *Verificato: zero
+occorrenze in `build_panel_light.ipynb`.*
 
-**X19 — `DealType` concatenato.** L'aggregazione produce una stringa tipo
-`"Accelerator/Incubator; Angel (individual)"`. *Da confermare* se serve a
-qualcosa oltre alla leggibilità.
+**X19 — `DealType` concatenato.** ~~L'aggregazione produce una stringa tipo
+`"Accelerator/Incubator; Angel (individual)"`.~~
+**Chiusa il 2026-09-17: la concatenazione non esiste più**, e la risposta al
+«da confermare» è no, non serviva a niente oltre alla leggibilità. Nel notebook
+leggero `DealType` sopravvive solo come colonna grezza da confrontare — la
+riparazione delle date in 4.4, l'elenco M25 in 4.5bis, e i quattordici flag
+`Is_*` in 4.7 — mai da unire. *Verificato su tutte e otto le occorrenze della
+stringa nel notebook: nessuna è un'aggregazione testuale.* Nelle 52 colonne
+finali arrivano i flag booleani, non il tipo di deal.
 
 **X20 — `Other_Deal`, `PreferredVerticals`, `MeanMedianValuation_cum`,
 `MeanTotalActivePortfolio_cum`, `InvestorOwnership`, `PremoneyValuation`.**
@@ -1299,27 +1308,95 @@ la temporizzazione **sovrappesa sistematicamente i concorrenti grandi e ben
 coperti**. È il difetto metodologico principale di questa fase e va dichiarato
 nell'articolo.
 
+> **Decisione (2026-09-17): si tiene.** `MaxYear` è la fine della vita in
+> **tutta** la pipeline — lo scheletro stesso finisce lì — e adottarne un'altra
+> solo per i concorrenti introdurrebbe un'incoerenza peggiore del difetto.
+> *Misurato: il 52,0% delle 91.629 aziende che risultano ancora operative
+> (`Generating Revenue`, `Profitable`, `Startup`) ha `MaxYear` prima del 2024,
+> mediana 2023.* Quei concorrenti escono dalla finestra mentre sono vivi, e il
+> conteggio si sgonfia proprio negli anni recenti, dove si osservano gli esiti.
+> Resta il difetto metodologico principale della fase: va dichiarato.
+
 **M21 — `Same_Country` cambia significato mantenendo il nome.**
 Era un booleano — «esiste un concorrente sopra 90 di similarità nel nostro
 paese» — e diventa un **conteggio** di concorrenti attivi nello stesso paese.
 La feature nei modelli si chiama uguale in entrambi i casi.
 
-**M22 — `SimilarityScoreMean` riempita con 0.**
-Dove nessuna azienda simile era attiva quell'anno il valore è 0, che è il
-**minimo della scala**, non un valore neutro: un'azienda senza concorrenti vivi
-appare a un modello come un'azienda i cui concorrenti sono massimamente
-diversi. Alternative: NA da imputare, oppure una colonna separata «nessun
-concorrente attivo».
+> **Decisione (2026-09-17): si tiene e si dichiara.** Nel panel R la colonna era
+> `TRUE`/`FALSE`/`NA` (219.753 TRUE, 649.808 FALSE, 12.763 NA su 882.324 righe);
+> qui è un conteggio di concorrenti attivi nello stesso paese e lo stato `NA`
+> non esiste. È una trappola a livello di articolo, non di codice: la feature si
+> chiama uguale nei due panel.
 
-**M23 — `N_Competitors_All` non è il `N_Competitors` dell'R.**
-Conta solo i concorrenti che hanno una finestra di vita utilizzabile, quindi è
-il minore dei due. L'esperimento senza finestra la usa come se fosse la
-versione statica dell'altra.
+**M22 — `SimilarityScoreMean` riempita con 0.** *(risolta il 2026-09-17 con
+`N_Similar`; l'incrocio dello 0 resta, ma ora è disambiguabile.)*
+Dove nessuna azienda simile era attiva quell'anno il valore è 0, che è il
+**minimo della scala**, non un valore neutro. Il punto è che quello 0 non dice
+quasi mai quello che sembra dire. *Misurato sul ramo temporizzato (907.934
+righe pre-troncamento): le righe a 0 sono 380.985, il 42,0%, e si scompongono
+in — **(a)** PitchBook non attribuisce nessuna azienda simile: **734 righe,
+lo 0,2% degli zeri**; **(b)** ne attribuisce, ma tutte fuori dalla nostra
+estrazione: **232.851, il 61,1%**; **(c)** ne ha di utilizzabili, ma nessuna
+viva quell'anno: **147.400, il 38,7%**.* Quindi il 61% degli zeri è una lacuna
+di **copertura nostra** e il 39% è informazione temporale genuina; l'assenza
+reale è lo 0,2%.
+
+Il danno è che la colonna smette di essere una media: i valori veri stanno fra
+20 e 100 con q1 90,4 e q3 95,8, quindi con il 42% delle righe a 0 quasi tutta
+la varianza sta nel salto 0 ↔ 93, cioè in un indicatore, non nella similarità.
+*E cade dove i modelli guardano: il 45,7% delle righe con `Age ≤ 2` è a 0.*
+`src/preprocessing.py:409` non rimedia, perché riempie i **null** con la media
+della colonna e null non ce ne sono: lo 0 arriva intatto ai modelli e alle
+distanze del KNN.
+
+> **Decisione (2026-09-17): si aggiunge `N_Similar`, il denominatore della
+> media.** `SimilarityScoreMean` non si tocca — la modifica è **additiva**, e
+> togliere la colonna riporta esattamente allo schema precedente. *Verificato
+> che nessun'altra colonna scioglie l'ambiguità: dove `N_Competitors == 0`
+> (793.693 righe) la media è vera nel 52% dei casi e fabbricata nel 48%, e le
+> righe con zero concorrenti ma media reale sono **412.708, il 45,5% del
+> panel**. Correlazione fra i due conteggi 0,477, R² 0,227.*
+
+**M23 — la temporizzazione perde le coppie la cui controparte è fuori
+estrazione.** *(riscritta il 2026-09-17: la voce precedente parlava di
+`N_Competitors_All`, colonna che non esiste più.)*
+Sapere se un concorrente era vivo in un dato anno richiede il suo anno di
+fondazione e il suo `MaxYear`, che si leggono solo da `Company.csv`. Le aziende
+simili nominate da PitchBook sono **558.698**, la nostra estrazione ne contiene
+**71.886**: con la temporizzazione accesa sopravvive il **15,6%** delle coppie
+(209.083 su 1.340.950). Il filtro non è casuale — tiene solo le controparti
+della nostra coorte — quindi **i concorrenti incumbent, esteri o fondati prima
+del 2000 sono invisibili per costruzione**, e `N_Competitors` misura «quanti
+dei miei concorrenti sono giovani quanto me».
+
+> Il filtro riguarda **solo** il ramo temporizzato. A `TEMPORIZZA_COMPETITOR`
+> spento non si applica: si usa ogni informazione disponibile, e il risultato
+> riproduce il panel R (`N_Competitors` medio 1,311 contro 1,263; le righe con
+> almeno un concorrente sono il 21,3% contro 20,7%; la differenza residua è il
+> vintage, voce M2). *Verificato che l'R calcolava esattamente così: ricalcolato
+> senza filtro sulla controparte riproduce `db_master_panel.csv.gz` sul 99,9%
+> delle righe, correlazione 1,0000.*
 
 **M24 — la relazione competitor è orientata.**
 Se A dichiara B come simile ma B non dichiara A, allora B conta fra i
 concorrenti di A e A non conta fra quelli di B. La direzione inversa non viene
-aggiunta, né qui né alla fase 3a. Da decidere se è quello che si vuole.
+aggiunta, né qui né alla fase 3a.
+
+> **Decisione (2026-09-17): si tiene una sola direzione.** *Misurato: le coppie
+> competitor con la reciproca dichiarata sono **4.684 su 130.872, il 3,6%**.*
+> Poiché PitchBook pubblica una **top-10 per azienda**, quello che si conta è un
+> *out-degree* tappato a 10: un'azienda citata come concorrente da cinquanta
+> altre, ma la cui top-10 è fatta di aziende fuori estrazione, ottiene 0. Da
+> dichiarare insieme a M20.
+
+**M27 — `SimilarityScoreMean` è quasi sempre la media di una o due aziende.**
+*(voce nuova, 2026-09-17.)* Il nome dice «media», ma dove il valore esiste il
+denominatore è 1 nel 47% dei casi e 2 nel 29%: **il 76% delle righe con un
+valore è una media su una o due aziende simili**, e solo lo 0,01% arriva a
+dieci. Una media su una osservazione e una su sei hanno affidabilità diverse e
+prima del 2026-09-17 il modello non poteva distinguerle; ora il denominatore è
+esplicito in `N_Similar`. Da tenere presente nell'interpretazione, non è un
+difetto da correggere.
 
 Vedi anche **M2** (vintage dell'estrazione).
 
@@ -1340,7 +1417,7 @@ sembrava grave. La colonna «arriva» usa le tre etichette del cancello
 |---|---|---|---|
 | 1 | **M0** attributi delle persone non temporizzati — **corretto il 2026-09-15** | era informazione dal futuro dentro **tre** delle 47 feature; ruoli e titoli ora si contano fino all'anno della riga | **alle 47** |
 | 2 | **M14 + M25** date dei deal | 10,9% delle date inventate, 5% dei deal che evaporano; tocca il target e il campione | **alle 47** |
-| 3 | **M20 / M22 / M23** competitor temporizzati | `MaxYear` come proxy di «viva», zero come riempimento: bias sistematico su tre feature | **alle 47** |
+| 3 | **M20** `MaxYear` come proxy di «viva» — *M22 e M23 chiuse il 2026-09-17* | i concorrenti vivi escono dalla finestra: bias che cresce negli anni recenti, su tre feature. Da dichiarare | **alle 47** |
 | 4 | **M2** vintage competitor | i risultati pubblicati non sono riproducibili su quelle tre feature | **alle 47** |
 | 5 | **M1** `GrowthStage` mescola stato attuale e storia | 2.764 aziende troncate lì, 9.620 righe perse; ma il salto temporale è quasi nullo | al panel |
 | 6 | **M12** regola `Zero_Invested` | statistiche globali che decidono un valore per riga; da tenere o togliere | **alle 47** |
