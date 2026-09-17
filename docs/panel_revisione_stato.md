@@ -2,7 +2,7 @@
 
 Ultimo aggiornamento: 2026-09-17 (fase 7: competitor dietro interruttore,
 colonne `_All` eliminate, `N_Similar` aggiunta — la revisione fase per fase è
-arrivata in fondo)
+arrivata in fondo; più la chiusura dei due residui di M0)
 
 Questo file è il punto di ripresa. Se la sessione di lavoro si interrompe,
 basta questo file più `git log` per riprendere senza ricostruire niente.
@@ -112,13 +112,14 @@ Sul notebook **leggero**, e in ordine di pipeline.
 | 4 | **B1 soglia, seconda occorrenza** | **fatto** (2026-09-11) |
 | 4 | **M12** `Zero_Invested` | **eliminata** (2026-09-16): leakage, e il panel non cambia |
 | 4 | **M14** date inventate · **M25** deal che evaporano | **fatto** (2026-09-16): passaggio 4 esteso, elenco delle aziende salvato |
+| 4 | **M15** deal datati prima della fondazione | **decisa** (2026-09-17): si tiene lo spostamento all'anno di fondazione e si dichiara · 139 deal in 121 aziende, e nel 68% dei casi il deal precede davvero la costituzione legale |
 | 4 | **M26** attributi degli investitori non temporizzati | **implementata** (2026-09-16) come `TEMPORIZZA_INVESTITORI`, spento di default · resta aperto se accenderlo: a valle le due colonne superano il 40% di mancanti e verrebbero scartate |
 | 5 | **M1** `GrowthStage` mescola stato e storia | **decisa** (2026-09-16): la cascata si tiene, si dichiara |
 | 5 | **M16** `cumany` rende gli stadi monotoni | **decisa** (2026-09-16): si tiene, si dichiara |
 | 6 | **M18** troncamento | **decisa** (2026-09-16): si tiene, e' cio' che rende corretto il target |
 | 7 | **M20, M21, M22, M23, M24** competitor | **fatto** (2026-09-17): M22 e M23 risolte, M20/M21/M24 decise e da dichiarare · M2 misurata |
-| trasversale | **M0** attributi delle persone non temporizzati | **fatto** (2026-09-15): esperienza e istruzione, team e CEO · il CEO dal board team resta da valutare |
-| dopo | M13: `TotalRaised` in `preprocessing.py`, rigenerare i dataset e i run | da fare |
+| trasversale | **M0** attributi delle persone non temporizzati | **fatto** (2026-09-15): esperienza e istruzione, team e CEO · **residui chiusi** (2026-09-17): anno dei ruoli senza data e standardizzazione · resta solo il CEO dal board team |
+| dopo | M13: `TotalRaised` in `preprocessing.py` | **fatto** (2026-09-17): codice aggiornato e provato in memoria · la rigenerazione di `data/processed/` e dei run si fa **una volta sola, a pipeline del panel completata** |
 
 **Cadute con le fasi 3a e 3b**, che nel leggero non esistono: B4, B8, X11/X23
 (la mappa Europa e `scripts/derive_europe_mapping.py`), X13, X14, T19-T25.
@@ -510,9 +511,35 @@ l'altra e' `N_Similar`, aggiunta il 2026-09-17 — e la verifica delle invariant
 le mette in conto. Per tornare indietro basta togliere
 la colonna.
 
-**Da fare a valle:** `src/preprocessing.py` seleziona ancora `TotalRaised_Est`
-(che non esiste piu'): quando lo si aggiorna, vanno selezionate `TotalRaised` e
-`UndisclosedAmountShare`.
+**Fatto a valle il 2026-09-17.** `src/preprocessing.py` seleziona ora
+`TotalRaised` e `UndisclosedAmountShare`. Nella storia completa
+(`build_full_history_dataset`) i due valori si aggregano in modo diverso:
+`TotalRaised` con `sum()` come prima, la quota con `mean()` sugli anni
+dell'azienda, perche' sommare una quota non vorrebbe dire niente e tenerne
+l'ultimo anno nemmeno.
+
+Nello stesso passaggio sono spariti i due punti che dipendevano dalle colonne
+`*_All`, eliminate dal panel: il `drop` in coda a `build_windowed_dataset` e il
+`drop` + `rename` in `build_full_history_dataset`. Il dataset senza finestra si
+ottiene ora ricostruendo il panel con `TEMPORIZZA_COMPETITOR` spento, non
+leggendo colonne parallele. *Provata in memoria la catena completa di `scripts/build_datasets.py` sul panel
+corrente, senza scrivere niente: `build_windowed_dataset` 32.752 x 56 ->
+`preprocess_dataset` 30.270 x 48 -> `build_full_history_dataset` 30.270 x 52 ->
+`preprocess_dataset(flag_no_time_window=True)` 30.270 x 49, e l'allineamento
+finale `select(window.columns)` funziona (30.270 x 48). `TotalRaised` e
+`UndisclosedAmountShare` sono presenti in entrambi i dataset, `TotalRaised_Est`
+in nessuno dei due. `UndisclosedAmountShare` sopravvive alla soglia del 40% di
+`handle_missing_values`, che invece avrebbe scartato `TotalRaised_NA`.*
+
+**`N_Similar` non e' stata aggiunta alle feature**: e' una scelta di modellazione,
+non una conseguenza di M13, e va decisa a parte.
+
+**Attenzione al percorso di input.** `scripts/build_datasets.py` legge il panel da
+`paths.raw_dataset`, che in `config/config.yaml` punta a `data/raw/panel.csv.gz`:
+NON e' il panel prodotto da questa pipeline (`data/interim_light/panel.csv.gz`),
+ma il vecchio output del notebook di temporizzazione dei competitor, con 122
+colonne, ID rinumerati e un'estrazione precedente. Va corretto prima di
+ricostruire i dataset, altrimenti il run e' a vuoto.
 
 **2026-09-16 — passaggio 4 della riparazione delle date, esteso (M14).** I
 quattro passaggi sono stati messi alla prova sui round che una data ce l'hanno,
@@ -576,10 +603,71 @@ dal panel, che non cambia di una riga ne' di una colonna. *Misurato: **12.042
 aziende**, di cui **757 perdono tutti i round**; 13.627 round persi, di cui 3.380
 VC.* Serve al controllo di robustezza dell'articolo.
 
-**Cosa resta di M0.** I ruoli senza data contano dall'anno di fondazione
-dell'entita' (limite inferiore) o da sempre; la standardizzazione usa tutte le
-coppie (persona, anno), quindi anche anni successivi di altre aziende; il CEO
-dal board team e' rimandato (vedi le decisioni aperte).
+**Cosa resta di M0.** Solo il CEO ricavato dal board team (vedi le decisioni
+aperte). Gli altri due residui sono stati chiusi il 2026-09-17, qui sotto.
+
+### Registro: i residui di M0, 2026-09-17
+
+**1. L'anno dei ruoli senza data.** La cascata che data ogni ruolo aveva tre
+livelli: data vera (77,3% degli eventi), anno di fondazione dell'entita' (18,8%),
+altrimenti **anno 0**, cioe' "conta in ogni anno del panel" (3,9%). Ora i livelli
+sono quattro: al posto dell'anno 0 c'e' il **primo anno noto della persona**, il
+piu' antico fra gli anni risolti ai primi due livelli sui suoi altri ruoli.
+L'anno 0 sopravvive solo per chi non ha nemmeno un altro ruolo datato.
+
+*Perche' il livello 3 non poteva usare la fondazione: le entita' che ci finiscono
+non hanno un anno di fondazione da nessuna parte. Misurato: il **93,1%** non sta
+ne' in `Company.csv` ne' in `Investor.csv` (sono aziende fuori dalla nostra
+estrazione, o entita'-persona come gli angel), il 6,9% c'e' ma ha `YearFounded`
+vuoto, e **nessuna di loro e' un'azienda del panel**.*
+
+*Effetto misurato: si spostano **35.947 eventi** (18.788 posizioni, 12.593 seggi,
+4.566 altri ruoli) per 23.899 persone, il 6,0% del totale; la categoria "da
+sempre" si svuota del tutto, perche' ogni persona con un ruolo senza data ne ha
+almeno un altro datato. `esperienza_persona_anno` passa da 663.769 a **639.681
+righe**. `WorkExp_Idx_Mean` va da 0,0588 a 0,0593, `Total_People` non si muove
+(conta persone, non ruoli), il panel resta 802.148 x 52.*
+
+*Controllo decisivo: **2a.3ter resta verde** — l'ultima riga dei conteggi coincide
+con le tabelle per tutte le 404.468 persone, e le differenze con `Person.csv`
+sono sempre le stesse 7 note. La modifica ha spostato gli ANNI, non il NUMERO di
+ruoli.*
+
+**La regola dei Founder era gia' applicata.** Un ruolo da Founder senza data cade
+nel livello 2 e viene datato alla fondazione dell'azienda, che e' esattamente
+"dal giorno 0". *Verificata anche la versione forte - forzare la fondazione pure
+dove una data dichiarata c'e' - e scartata: sui 237.009 ruoli da founder datati
+con fondazione nota, l'**89,1%** coincide gia', il 6,8% e' posteriore (si
+sposterebbero 16.031 eventi) e il **4,2% e' anteriore** alla fondazione, e li'
+forzare la regola cancellerebbe esperienza dichiarata.*
+
+**2. La standardizzazione guardava tutti gli anni.** Media e deviazione standard
+di `log1p` erano **un unico paio di numeri** calcolati su tutte le coppie
+(persona, anno) del panel: il valore di una riga del 2005 dipendeva anche dalle
+righe del 2020, cioe' un fit dello scaler sull'intero dataset, futuro compreso.
+Ora sono **per anno, a finestra espansiva** (solo gli anni <= a quello della
+riga, anno corrente incluso), calcolate in 2b.1bis e riusate in 5.6 per l'indice
+del CEO agganciandole sull'anno della riga. Solo sul ramo temporizzato: a
+interruttore spento la popolazione e' (azienda, persona) e non ha un asse
+temporale su cui espandere la finestra.
+
+*Verifica del metodo: all'ultimo anno la finestra contiene tutta la popolazione,
+quindi deve riprodurre i vecchi parametri unici - e li riproduceva alla sesta
+cifra (0,692745 / 0,320527 per le Posizioni, 0,110951 / 0,434557 per gli
+AltriRuoli). Misurato prima che cambiasse anche la cascata degli anni: la
+proprieta' resta, i valori di oggi differiscono perche' sono cambiati gli eventi
+sottostanti. Ne segue che il cambiamento e' **confinato agli anni iniziali** e si
+annulla verso la fine del panel.*
+
+*Quanto contava: nel 2000 la popolazione e' di 4.467 coppie contro 3.394.785
+all'ultimo anno, e la deviazione standard di `AltriRuoli` vale 0,194 contro
+0,435 - le righe di inizio panel erano standardizzate con una scala **2,2 volte**
+piu' larga di quella dei loro contemporanei, quindi risultavano troppo basse.
+`WorkExp_Idx_Mean` per anno solare va ora da -0,0229 nel 2000 a +0,0984 nel 2024.*
+
+**Non misurato:** il confronto riga per riga prima/dopo. Il panel precedente e'
+sovrascritto e i conteggi grezzi vengono scartati dopo il calcolo dell'indice;
+servirebbe una riesecuzione con il codice vecchio.
 
 ### Registro: fase 7, competitor, 2026-09-17
 
@@ -644,9 +732,10 @@ dichiarati: e' fra le decisioni aperte.
    mentre il tipo di deal determina il target). Le sette colonne `*_Est` non
    esistono in nessun output.
 2. **M13 — la colonna che sostituisce `TotalRaised_Est` in
-   `src/preprocessing.py` è `TotalRaised`.** La sostituzione si fa **dopo**
-   aver finito di correggere il notebook, in un passaggio solo: comporta
-   rigenerare `data/processed/` e tutti i run.
+   `src/preprocessing.py` è `TotalRaised`.** *Codice aggiornato il 2026-09-17*
+   (registro della fase 4). La rigenerazione di `data/processed/` e dei run
+   resta deliberatamente sospesa: si fa **una volta sola**, quando la pipeline
+   del panel sarà completa.
 
 3. **2026-09-14 — fase 2 del leggero**: deduplica, `EndDate` all'ultimo anno
    di vita, taglio del panel a `MaxYear`. Dettaglio e numeri nel registro qui

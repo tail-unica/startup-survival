@@ -263,9 +263,10 @@ def build_windowed_dataset(initialPanel, TimeWindow=7, lastYear=2024):
         & (pl.col("YearFounded") + pl.col("Age") >= 2010)
     )
 
-    datasetWithTimeWindow = datasetWithTimeWindow.drop(
-        "N_Competitors_All", "Same_Country_All", "SimilarityScoreMean_All"
-    )
+    # Le tre colonne *_All non esistono piu' nel panel (eliminate il 2026-09-17):
+    # la terna competitor e' una sola e il suo contenuto lo decide
+    # TEMPORIZZA_COMPETITOR in fase di costruzione del panel. Qui non c'e' piu'
+    # niente da scartare.
 
     return datasetWithTimeWindow
 
@@ -300,7 +301,8 @@ def build_full_history_dataset(initialPanel, dataset_window):
                 pl.all()
                 .exclude(
                     [
-                        "TotalRaised_Est",
+                        "TotalRaised",
+                        "UndisclosedAmountShare",
                         "WorkExp_Idx_Mean",
                         "Highest_Degree_Mean",
                         "Avg_Earliest_Year",
@@ -308,7 +310,15 @@ def build_full_history_dataset(initialPanel, dataset_window):
                 )
                 .sort_by("Age")
                 .last(),
-                pl.col("TotalRaised_Est").sum(),
+                # TotalRaised sostituisce TotalRaised_Est, che non esiste piu':
+                # l'imputazione RandomForest da cui nasceva e' stata eliminata
+                # (voce M11), e TotalRaised somma gli importi davvero dichiarati.
+                pl.col("TotalRaised").sum(),
+                # UndisclosedAmountShare e' una QUOTA, non un importo: sommarla non
+                # vorrebbe dire niente e prenderne l'ultimo anno nemmeno, quindi si
+                # media sugli anni dell'azienda. Dice quanta parte dei suoi round
+                # non dichiara l'importo, cioe' quanto e' affidabile TotalRaised.
+                pl.col("UndisclosedAmountShare").mean(),
                 pl.col("WorkExp_Idx_Mean").mean(),
                 pl.col("Highest_Degree_Mean").mean(),
                 pl.col("Avg_Earliest_Year").mean(),
@@ -318,15 +328,13 @@ def build_full_history_dataset(initialPanel, dataset_window):
 
     df_target_final = df_no_tw.rename({"GrowthNextStageGroup": "Target"})
 
+    # Prima qui si buttavano le tre colonne competitor temporizzate e si
+    # rinominavano le *_All al loro posto, perche' il panel le portava entrambe.
+    # Ora ce n'e' una sola terna: per avere la versione SENZA temporizzazione si
+    # ricostruisce il panel con TEMPORIZZA_COMPETITOR spento, e queste colonne
+    # contengono gia' i valori giusti.
     df_target_final = (
-        df_target_final.drop("N_Competitors", "Same_Country", "SimilarityScoreMean")
-        .rename(
-            {
-                "N_Competitors_All": "N_Competitors",
-                "Same_Country_All": "Same_Country",
-                "SimilarityScoreMean_All": "SimilarityScoreMean",
-            }
-        )
+        df_target_final
         .with_columns(
             pl.col("N_Competitors").fill_null(0),
             pl.col("Same_Country").fill_null(0),
@@ -503,7 +511,8 @@ def preprocess_dataset(dataset, university_ranking_path, flag_no_time_window=Fal
             "YearFounded",
             "Age",
             "N_Deal",
-            "TotalRaised_Est",
+            "TotalRaised",
+            "UndisclosedAmountShare",
             "Percent_Females",
             "Is_Eco",
             "Is_Eng",

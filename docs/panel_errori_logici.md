@@ -1,6 +1,6 @@
 # Panel — errori logici, differenze implementative, peso morto
 
-Data: 2026-09-10 · riverificato il 2026-09-11 · fase 2 chiusa nel leggero il 2026-09-14 · M0 corretto il 2026-09-15
+Data: 2026-09-10 · riverificato il 2026-09-11 · fase 2 chiusa nel leggero il 2026-09-14 · M0 corretto il 2026-09-15 · residui di M0 chiusi il 2026-09-17
 Stato: documento di lavoro per la revisione fase per fase
 
 Questo file è il registro di tutto ciò che, nella pipeline di costruzione del
@@ -69,8 +69,8 @@ nessun `set.seed`, addestrato su tutti gli anni, fittato prima di qualsiasi
 split, e con il tipo di deal fra i predittori quando il tipo di deal determina
 il target. **Non va portato.** Di conseguenza le sette colonne `*_Est` non
 esistono più in nessun output, e la colonna che le sostituisce a valle è
-**`TotalRaised`**: `src/preprocessing.py` leggerà quella al posto di
-`TotalRaised_Est` una volta finita la correzione del notebook. Vedi M13.
+**`TotalRaised`**: `src/preprocessing.py` la legge al posto di
+`TotalRaised_Est` **dal 2026-09-17**. Vedi M13.
 
 **2026-09-14 — fase 2 del notebook leggero, corretta senza flag.** Dettaglio e
 numeri in `docs/panel_revisione_stato.md`, «Registro: fase 2 del leggero».
@@ -96,6 +96,11 @@ sono ricostruite anno per anno dalle tabelle di dettaglio e agganciate dopo
 l'espansione, per il team (2b.1bis) e per il CEO (5.6). Vedi il registro in
 `docs/panel_revisione_stato.md`.
 
+**2026-09-17 — i due residui di M0 sono chiusi.** I ruoli senza data non contano
+più «da sempre» ma dal primo anno noto della persona, e la standardizzazione
+dell'indice di esperienza usa una finestra espansiva invece di parametri
+calcolati su tutto il panel. Resta solo il CEO ricavato dal board team.
+
 ---
 
 ## Trasversale — la voce più importante
@@ -104,8 +109,12 @@ l'espansione, per il team (2b.1bis) e per il CEO (5.6). Vedi il registro in
 
 > **Corretto nel notebook leggero il 2026-09-15**, per esperienza e istruzione,
 > sia del team sia del CEO. Dettaglio, numeri ed effetto sul panel in
-> `docs/panel_revisione_stato.md`, «Registro: M0 nel leggero». Resta da valutare
-> il CEO ricavato dai titoli del board team, che riempirebbe gli anni senza CEO.
+> `docs/panel_revisione_stato.md`, «Registro: M0 nel leggero».
+>
+> **I due residui sono stati chiusi il 2026-09-17** (registro «I residui di M0»):
+> l'anno dei ruoli senza data e la standardizzazione su tutto il panel.
+> **Resta aperta una sola cosa**: il CEO ricavato dai titoli del board team, che
+> riempirebbe gli anni senza CEO.
 
 **Dove:** fasi 2a, 2b e 5.
 
@@ -302,11 +311,19 @@ solo perché nessun `case_when` la riconosce. `FiscalDate` è `Year-Month-30`.
 ramo non scatta mai su questa estrazione.* La regola è latente, non attiva: va
 tenuta perché un'estrazione futura potrebbe attivarla.
 
-**T5 — `db1.parquet` esiste per una ragione precisa.**
+**T5 — `db1.parquet` esiste per una ragione precisa.** *(superata di proposito
+nel notebook leggero.)*
 Alla riga 448 l'R aggancia `YearFounded` alla tabella del team prendendolo da
 `db1`, cioè dalla versione **non filtrata**. Usare `db_master_1` (filtrato
 `> 1999`) farebbe sparire le persone delle aziende più vecchie e cambierebbe
 `db3`.
+
+> Nel leggero `db1` **non esiste più** e la differenza è voluta, non subita: il
+> blocco 2a.1 legge solo gli incarichi delle aziende dello scheletro (466.312 su
+> 535.568), perché le persone delle aziende fuori dal panel non servono a
+> nessuna colonna. È una delle correzioni dichiarate nell'introduzione del
+> notebook. Chi volesse riprodurre l'R fedelmente usi `build_panel.ipynb`, che è
+> congelato e `db1` ce l'ha.
 
 ### Scelte discutibili
 
@@ -723,14 +740,30 @@ può cambiare classificazione fra due release.
 
 ### Scelte discutibili
 
-**M9 — `HQCountry` viene dalla tabella già filtrata.**
-`Same_Country` confronta il paese del concorrente con `HQCountry` preso da
+**M9 — `HQCountry` viene dalla tabella già filtrata.** *(risolta il 2026-09-17,
+di riflesso.)*
+`Same_Country` confrontava il paese del concorrente con `HQCountry` preso da
 `db_master_1`, che è filtrato `YearFounded > 1999`. Per le aziende fuori dal
-panel `HQCountry` è NA, quindi il confronto è NA **per costruzione**.
+panel `HQCountry` è NA, quindi il confronto era NA **per costruzione**.
 
-**M10 — la soglia 90 è arbitraria e usata in modo incoerente.**
-`Same_Country` e `N_Outside_Europe` la applicano, `SimilarityScoreMean`,
+> Nel notebook leggero non succede più, ed è un effetto collaterale del lavoro
+> sulla fase 7. Il paese della controparte si legge da `SimilarCompanyHQCountry`
+> nella tabella delle relazioni — presente sul 99,57% delle righe — e quello
+> proprio da `vita`, che il blocco 7.1 costruisce su **tutte** le aziende di
+> `Company.csv` con anno di fondazione e `MaxYear` non nulli (126.817 su
+> 134.355), senza nessun filtro sull'anno. *Verificato: zero aziende senza
+> `HQCountry` fra quelle con una finestra di vita.*
+
+**M10 — la soglia 90 è arbitraria e usata in modo incoerente.** *(decaduta nel
+notebook leggero.)*
+`Same_Country` e `N_Outside_Europe` la applicavano, `SimilarityScoreMean`,
 `N_Competitors` e `N_Europe` no.
+
+> Qui la soglia **non esiste più**: `Same_Country` è un conteggio di concorrenti
+> attivi nello stesso paese, senza filtro sulla similarità (voce M21), e
+> `N_Europe`/`N_Outside_Europe` sono cadute con la fase 3a. *Verificato: nella
+> fase 7 il numero 90 compare solo dentro un commento che descrive cosa faceva
+> l'R.* L'incoerenza è sparita insieme alla soglia.
 
 ### Candidati all'eliminazione
 
@@ -742,7 +775,9 @@ B.** È il candidato più netto della lista: se la fedeltà non è più l'obiett
 spariscono ~100 righe di codice e un file di dati. Insieme a X11 cadono anche
 B4 e B8, che sono difetti di colonne che nessuno legge.
 
-**X12 — `SimilarityScoreMax`.** Nel panel; *da confermare* se arriva alle 47.
+**X12 — `SimilarityScoreMax`.** ~~Nel panel; *da confermare* se arriva alle 47.~~
+**Chiusa il 2026-09-17: non arriva.** *Verificato: assente dalle 52 colonne del
+panel leggero*, come X3, X6, X7, X8, X9, X13, X14 e X22.
 
 ---
 
@@ -905,18 +940,19 @@ dataset**: stessa famiglia di M11, più mite. È **mantenuta** perché alimenta
 > distinguere «non ha raccolto» da «non sappiamo quanto». È la 54ª colonna del
 > panel, l'unica che non viene da `example_panel.csv`.
 >
-> **Da fare quando si aggiorna `src/preprocessing.py`** (oggi seleziona ancora
-> `TotalRaised_Est`, che non esiste più): selezionare `TotalRaised` **e**
-> `UndisclosedAmountShare`. Per tornare al comportamento precedente basta
-> togliere la colonna.
+> **Fatto il 2026-09-17:** `src/preprocessing.py` seleziona `TotalRaised` **e**
+> `UndisclosedAmountShare`. Nella storia completa la quota si aggrega con
+> `mean()` sugli anni dell'azienda, non con `sum()`: sommare una quota non
+> vorrebbe dire niente. Per tornare al comportamento precedente basta togliere
+> la colonna.
 Vale 0 sia quando non c'è stato nessun deal, sia quando c'è stato un deal a
 importo zero, sia quando c'è stato un deal di importo **non dichiarato**.
 `TR_D` distingue il primo caso; `TotalRaised_NA` e `TotalRaised_any` il terzo.
 
 > **Decisione del 2026-09-11: la colonna che sostituisce `TotalRaised_Est` in
-> `src/preprocessing.py` è `TotalRaised`.** La sostituzione si fa **dopo** aver
-> finito di correggere il notebook, in un passaggio solo, perché comporta
-> rigenerare `data/processed/` e tutti i run.
+> `src/preprocessing.py` è `TotalRaised`.** *Codice aggiornato il 2026-09-17.*
+> La rigenerazione di `data/processed/` e dei run resta sospesa di proposito:
+> si fa in un passaggio solo, a pipeline del panel completata.
 >
 > Il costo della scelta, dichiarato: `TotalRaised` scrive **0** dove l'importo
 > non è dichiarato, quindi «non ha raccolto niente» e «non sappiamo quanto»
@@ -1006,8 +1042,28 @@ dalle colonne temporali. Nessuna delle tre è gratis.
 **M15 — i deal antecedenti la fondazione vengono spostati nel tempo.**
 `Year_Delta = pmax(year(DealDate), YearFounded)` schiaccia sull'anno di
 fondazione i deal datati prima. È un evento **spostato**, non scartato.
-*Misurato: **143 deal su 332.818, su 122 aziende**.* Trascurabile — è M14 e
-M25 che contano, non questa.
+
+> **Decisione (2026-09-17): si tiene lo spostamento e si dichiara.** Il panel
+> comincia a `Age = 0`, quindi per un deal precedente alla fondazione **non
+> esiste una riga su cui atterrare**: le sole alternative sono spostarlo o
+> buttarlo, e buttarlo perderebbe eventi di finanziamento reali.
+>
+> *Rimisurato sulla pipeline attuale: **139 deal su 284.345 datati**, lo
+> 0,049%, in **121 aziende**, di cui 30 non hanno nessun altro deal datato.
+> Precedono la fondazione di 1 anno nel 56,8% dei casi e di 2 o meno nel 76,3%;
+> il massimo e' 22 anni. Importo complessivo 2.204,5, mediana del singolo deal
+> ~105 mila.*
+>
+> **La maggioranza non e' un errore.** 95 casi su 139 (il 68%) sono
+> `Accelerator/Incubator` (57), `Grant` (20), `Seed Round` (9), `Angel` (5) e
+> `Product Crowdfunding` (4): eventi che precedono davvero la **costituzione
+> legale**, perche' `YearFounded` e' l'anno di costituzione e non quello in cui
+> il progetto esiste. Il difetto e' nel nostro asse temporale, non nel dato.
+>
+> **Impossibili sono solo 17**: 9 `Merger/Acquisition` e 8 `Out of Business`
+> datati prima che l'azienda esista — ID riusati, rinomine o date sbagliate.
+> Non si trattano a parte: sono 17 righe su 284.345, e una regola speciale
+> costerebbe piu' di quanto valga.
 
 **M26 — gli attributi degli investitori non sono temporizzati.** *(voce nuova,
 2026-09-16.)*
@@ -1345,7 +1401,7 @@ Il danno è che la colonna smette di essere una media: i valori veri stanno fra
 20 e 100 con q1 90,4 e q3 95,8, quindi con il 42% delle righe a 0 quasi tutta
 la varianza sta nel salto 0 ↔ 93, cioè in un indicatore, non nella similarità.
 *E cade dove i modelli guardano: il 45,7% delle righe con `Age ≤ 2` è a 0.*
-`src/preprocessing.py:409` non rimedia, perché riempie i **null** con la media
+`src/preprocessing.py:419` non rimedia, perché riempie i **null** con la media
 della colonna e null non ce ne sono: lo 0 arriva intatto ai modelli e alle
 distanze del KNN.
 
@@ -1415,7 +1471,7 @@ sembrava grave. La colonna «arriva» usa le tre etichette del cancello
 
 | # | voce | perché conta | arriva |
 |---|---|---|---|
-| 1 | **M0** attributi delle persone non temporizzati — **corretto il 2026-09-15** | era informazione dal futuro dentro **tre** delle 47 feature; ruoli e titoli ora si contano fino all'anno della riga | **alle 47** |
+| 1 | **M0** attributi delle persone non temporizzati — **corretto il 2026-09-15, residui chiusi il 2026-09-17** | era informazione dal futuro dentro **tre** delle 47 feature; ruoli e titoli si contano fino all'anno della riga, e la standardizzazione non guarda più gli anni successivi. Resta solo il CEO dal board team | **alle 47** |
 | 2 | **M14 + M25** date dei deal | 10,9% delle date inventate, 5% dei deal che evaporano; tocca il target e il campione | **alle 47** |
 | 3 | **M20** `MaxYear` come proxy di «viva» — *M22 e M23 chiuse il 2026-09-17* | i concorrenti vivi escono dalla finestra: bias che cresce negli anni recenti, su tre feature. Da dichiarare | **alle 47** |
 | 4 | **M2** vintage competitor | i risultati pubblicati non sono riproducibili su quelle tre feature | **alle 47** |
