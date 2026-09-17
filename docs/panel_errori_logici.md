@@ -111,10 +111,11 @@ calcolati su tutto il panel. Resta solo il CEO ricavato dal board team.
 > sia del team sia del CEO. Dettaglio, numeri ed effetto sul panel in
 > `docs/panel_revisione_stato.md`, «Registro: M0 nel leggero».
 >
-> **I due residui sono stati chiusi il 2026-09-17** (registro «I residui di M0»):
-> l'anno dei ruoli senza data e la standardizzazione su tutto il panel.
-> **Resta aperta una sola cosa**: il CEO ricavato dai titoli del board team, che
-> riempirebbe gli anni senza CEO.
+> **Chiusa del tutto il 2026-09-17.** I due residui — l'anno dei ruoli senza
+> data e la standardizzazione su tutto il panel — e anche il terzo, il CEO
+> ricavato dai titoli del board team, che ora tappa gli anni prima del primo
+> round **solo dove l'attribuzione e' verificabile** (registri «I residui di M0»
+> e «Il CEO dal board team»).
 
 **Dove:** fasi 2a, 2b e 5.
 
@@ -1471,7 +1472,7 @@ sembrava grave. La colonna «arriva» usa le tre etichette del cancello
 
 | # | voce | perché conta | arriva |
 |---|---|---|---|
-| 1 | **M0** attributi delle persone non temporizzati — **corretto il 2026-09-15, residui chiusi il 2026-09-17** | era informazione dal futuro dentro **tre** delle 47 feature; ruoli e titoli si contano fino all'anno della riga, e la standardizzazione non guarda più gli anni successivi. Resta solo il CEO dal board team | **alle 47** |
+| 1 | **M0** attributi delle persone non temporizzati — **chiusa il 2026-09-17** | era informazione dal futuro dentro **tre** delle 47 feature; ruoli e titoli si contano fino all'anno della riga, la standardizzazione non guarda più gli anni successivi, e il CEO prima del primo round si ricava dal board team solo dove è verificabile | **alle 47** |
 | 2 | **M14 + M25** date dei deal | 10,9% delle date inventate, 5% dei deal che evaporano; tocca il target e il campione | **alle 47** |
 | 3 | **M20** `MaxYear` come proxy di «viva» — *M22 e M23 chiuse il 2026-09-17* | i concorrenti vivi escono dalla finestra: bias che cresce negli anni recenti, su tre feature. Da dichiarare | **alle 47** |
 | 4 | **M2** vintage competitor | i risultati pubblicati non sono riproducibili su quelle tre feature | **alle 47** |

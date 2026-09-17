@@ -118,7 +118,7 @@ Sul notebook **leggero**, e in ordine di pipeline.
 | 5 | **M16** `cumany` rende gli stadi monotoni | **decisa** (2026-09-16): si tiene, si dichiara |
 | 6 | **M18** troncamento | **decisa** (2026-09-16): si tiene, e' cio' che rende corretto il target |
 | 7 | **M20, M21, M22, M23, M24** competitor | **fatto** (2026-09-17): M22 e M23 risolte, M20/M21/M24 decise e da dichiarare · M2 misurata |
-| trasversale | **M0** attributi delle persone non temporizzati | **fatto** (2026-09-15): esperienza e istruzione, team e CEO · **residui chiusi** (2026-09-17): anno dei ruoli senza data e standardizzazione · resta solo il CEO dal board team |
+| trasversale | **M0** attributi delle persone non temporizzati | **chiusa** (2026-09-17): esperienza e istruzione di team e CEO, anno dei ruoli senza data, standardizzazione a finestra espansiva, e il CEO dal board team prima del primo round |
 | dopo | M13: `TotalRaised` in `preprocessing.py` | **fatto** (2026-09-17): codice aggiornato e provato in memoria · la rigenerazione di `data/processed/` e dei run si fa **una volta sola, a pipeline del panel completata** |
 
 **Cadute con le fasi 3a e 3b**, che nel leggero non esistono: B4, B8, X11/X23
@@ -603,8 +603,8 @@ dal panel, che non cambia di una riga ne' di una colonna. *Misurato: **12.042
 aziende**, di cui **757 perdono tutti i round**; 13.627 round persi, di cui 3.380
 VC.* Serve al controllo di robustezza dell'articolo.
 
-**Cosa resta di M0.** Solo il CEO ricavato dal board team (vedi le decisioni
-aperte). Gli altri due residui sono stati chiusi il 2026-09-17, qui sotto.
+**M0 e' chiusa.** Tutti e tre i residui sono stati risolti il 2026-09-17: i due
+qui sotto e il CEO dal board team, nel registro in fondo.
 
 ### Registro: i residui di M0, 2026-09-17
 
@@ -668,6 +668,63 @@ piu' larga di quella dei loro contemporanei, quindi risultavano troppo basse.
 **Non misurato:** il confronto riga per riga prima/dopo. Il panel precedente e'
 sovrascritto e i conteggi grezzi vengono scartati dopo il calcolo dell'indice;
 servirebbe una riesecuzione con il codice vecchio.
+
+### Registro: il CEO dal board team, 2026-09-17
+
+**Il buco.** Il CEO viene dai deal (`CEOPBId`, riportato in avanti fino al round
+successivo), quindi **prima del primo round non esiste**. *Misurato: la copertura
+e' del 70,8% sul panel ma scende al **52,4%** fra le righe con `Age <= 2`, che
+sono quelle da cui i modelli leggono le feature.*
+
+**Perche' non si poteva riempire e basta.** Il titolo del board team e' una
+fotografia alla data di estrazione. *Verificato che la tabella grezza ha **una
+riga per rapporto, non per ruolo**: 535.568 righe su 534.851 coppie (azienda,
+persona), e le coppie con sia una riga CEO sia una non-CEO sono **116**, fra cui
+il 57% ha la stessa data.* Quindi `StartDate` dice quando la persona e' entrata
+in azienda, **non** quando e' diventata CEO: riempire alla cieca avrebbe
+proiettato un "CEO adesso" all'indietro di 8 anni mediani sul 72% delle righe.
+
+**La regola adottata.** Si riempie solo dove l'attribuzione e' verificabile:
+un solo ruolo CEO copre l'anno; titolo **founder + CEO**; `StartDate` **vera**;
+e' la **stessa persona** che il primo deal conferma CEO; nessun altro ha un ruolo
+da CEO cominciato prima.
+
+*Perche' founder+CEO: per un founder la StartDate coincide con l'anno di
+fondazione nell'**89,0%** dei casi, contro il **22,7%** dei CEO non founder -
+quindi "da quando e' in azienda" non e' ambiguo. Sono il 71,3% dei ruoli CEO.*
+
+*I controesempi si escludono invece di assumerli via: le aziende in cui un'altra
+persona ha un ruolo CEO iniziato prima del founder sono **246 su 51.470**, lo
+0,48%.* E la finestra retrodatata e' corta: *fra fondazione e primo deal passa
+**1 anno** mediano, e nel 78,5% dei casi due o meno.*
+
+**Piu' le correzioni.** Quando un nuovo CEO entra fra un round e l'altro, il
+riporto in avanti trascinava il vecchio: in quelle righe attribuivamo la persona
+**sbagliata**. Se un ruolo del board comincia con data vera dopo l'ultima
+dichiarazione dei deal ed e' un'altra persona, vince lui.
+
+| | |
+|---|---:|
+| righe riempite prima del primo round | **71.600** |
+| attribuzioni corrette | **3.491** |
+| copertura `Age <= 2` | da **52,4%** a **66,2%** |
+| `Gender_CEO` valorizzata | 76,2% del panel |
+| `WorkExperienceIndex_CEO` valorizzata | 76,6% |
+
+*Il riempimento indiscriminato avrebbe dato il 74,1% invece del 66,2%: si
+rinuncia a 8 punti per non fondare una riga su tre su un titolo non verificabile.*
+
+**Scartato: le aziende senza nessun CEO dai deal.** Sono 15.071, ma il board ne
+copre solo 1.472 e *al massimo **178** arrivano al dataset dei modelli, lo 0,59%
+delle righe*. Nessuna conferma e' possibile — non esiste un deal che dica chi
+fosse il CEO — e l'82,7% delle date parte comunque dalla fondazione. Non vale
+un'assunzione non verificabile per mezzo punto percentuale.
+
+**Il limite che resta, da dichiarare.** Un co-founder puo' essere stato CTO e
+diventato CEO piu' tardi: la riga direbbe comunque "Co-Founder & CEO" dalla
+stessa data. La conferma del deal delimita **chi**, la data di fondazione
+delimita **da quando era in azienda**, ma l'incertezza sull'etichetta dentro la
+finestra fondazione-primo round non e' eliminabile con questi dati.
 
 ### Registro: fase 7, competitor, 2026-09-17
 
