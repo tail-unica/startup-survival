@@ -19,13 +19,17 @@ the prediction target under a strict temporal constraint (a fixed look-back
 available up to the decision point. We then quantify the impact of look-ahead
 bias by comparing, on the same firms and models, two dataset constructions:
 
-- **`window`** — the bias-controlled dataset (features restricted to a time
-  window, no look-ahead);
-- **`nowindow`** — the same firms with cumulative, full-history features (i.e.
-  with look-ahead bias).
+- **`window`** — the bias-controlled dataset: attributes as of each row's own
+  year, features read at the age the firm first reached an early stage;
+- **`nowindow`** — the same firms with the attributes declared at extraction time
+  and cumulative, full-history features (i.e. with look-ahead bias).
+
+Each comes from its own panel: `build_panel.ipynb` runs once with its
+temporization switches on and once with them off, writing `panel.csv.gz` and
+`panel_snapshot.csv.gz`.
 
 `window` and `nowindow` differ in the features, in the definition of the target
-and, as a consequence of the latter, in the base rate (0.321 against 0.405), so
+and, as a consequence of the latter, in the base rate (0.327 against 0.410), so
 the gap between them is the sum of two leaks. Two control settings complete the
 2x2 and separate them, each derived from the two processed datasets by swapping
 the target on `CompanyID` (same firms, same columns):
@@ -59,11 +63,12 @@ release the following:
 
 | File | Content | Status |
 |------|---------|--------|
-| `data/raw/example_panel.csv` | **Example panel with non-real data.** Synthetic records that reproduce the schema, column types, value ranges, and the panel (multi-row-per-firm) structure of the original input, so that the feature/target-engineering code can be executed end to end. The values do **not** correspond to any real company. | Released |
+| `data/example/pitchbook/` | **A synthetic extraction.** Fourteen invented tables in the shape PitchBook delivers, carrying only the columns the pipeline reads and a cast of eight companies chosen so that every branch of the panel construction fires at least once. `scripts/make_example_data.py` writes them and documents each company's story. | Released |
+| `data/raw/example_panel.csv` | **The panel those tables produce**, 79 rows by 52 columns: an example of the real thing, and the schema the notebook checks itself against. The values do **not** correspond to any real company. | Released |
 | `data/processed/dataset_window.csv` | **Final bias-controlled dataset** (`window`) used in all experiments. | Released |
 | `data/processed/dataset_nowindow.csv` | **Final dataset with look-ahead bias** (`nowindow`) used in all experiments. | Released |
 | `data/raw/pitchbook/` | The PitchBook extraction the panel is built from. | **Not released** |
-| `data/interim/panel.csv.gz` | The panel `build_panel_light.ipynb` produces from that extraction. | **Not released** |
+| `data/interim/panel.csv.gz` | The panel `build_panel.ipynb` produces from that extraction. | **Not released** |
 | `data/raw/QS_World_Rankings.csv` | QS World University Rankings, used to flag top-tier institutes. | See QS terms |
 
 The two released **final datasets** are the exact inputs to every model and
@@ -80,16 +85,19 @@ demonstrate and re-run the upstream feature-engineering pipeline.
 │   └── config.yaml               # Paths, time window, split, seeds, frequency encoding, sweep
 ├── data/
 │   ├── raw/
-│   │   ├── example_panel.csv     # Synthetic example panel (released)
+│   │   ├── example_panel.csv     # The panel the synthetic extraction produces (released)
 │   │   ├── QS_World_Rankings.csv # University ranking, to flag top-tier institutes
 │   │   └── pitchbook/            # PitchBook extraction (not released)
+│   ├── example/
+│   │   └── pitchbook/            # Synthetic extraction, 14 tables (released)
 │   ├── interim/                  # Per-stage outputs of the panel pipeline, and the panel itself
 │   └── processed/
 │       ├── dataset_window.csv    # Final bias-controlled dataset (released)
 │       └── dataset_nowindow.csv  # Final look-ahead-biased dataset (released)
 ├── docs/                         # Design specs and implementation plans
 ├── scripts/
-│   └── build_datasets.py         # Rebuilds the two processed datasets from the panel
+│   ├── build_datasets.py         # Rebuilds the two processed datasets from the two panels
+│   └── make_example_data.py      # Writes the synthetic extraction, one story per company
 ├── src/
 │   ├── preprocessing.py          # Feature & target engineering, time window, imputation
 │   ├── encoding.py               # Frequency encoding, fitted per split (no leakage)
@@ -100,14 +108,14 @@ demonstrate and re-run the upstream feature-engineering pipeline.
 │   │   ├── sklearn_models.py     # RF, LightGBM, Decision Tree, LR, SVM
 │   │   ├── mlp.py                # The network and its training loop
 │   │   └── tabpfn.py             # TabPFN v2, run locally
-│   └── panel/                    # What build_panel_light.ipynb calls; the logic is in the notebook
+│   └── panel/                    # What build_panel.ipynb calls; the logic is in the notebook
 │       ├── config.py             # The pipeline's paths
 │       ├── expressions.py        # Expressions with the pipeline's missing-value rules
 │       ├── io.py                 # Schema-explicit readers, no type inference
 │       └── expansions.py         # The two memory-heavy expansions
 ├── tests/                        # pytest suite: unit tests plus the notebook-to-notebook contract
 ├── .github/workflows/tests.yml   # Lint, format check and tests on every push
-├── build_panel_light.ipynb       # Panel construction, phase by phase, documented
+├── build_panel.ipynb       # Panel construction, phase by phase, documented
 ├── notebook.ipynb                # Experiments on the two processed datasets (end to end)
 ├── pyproject.toml                # Dependencies, ruff configuration
 ├── uv.lock                       # Exact resolution, committed
@@ -122,7 +130,7 @@ does today.
 
 ## Panel construction
 
-**`build_panel_light.ipynb` is the pipeline.** Not a wrapper around it: the
+**`build_panel.ipynb` is the pipeline.** Not a wrapper around it: the
 logic lives in the notebook, in forty-odd blocks of a dozen lines each, one per
 logical step, and each block carries the explanation of what it does, which
 assumption it makes, which trap a plausible translation would fall into, and what
@@ -130,8 +138,17 @@ to look at in the result. The repository backs a paper, so every step has to be
 readable and checkable, not just runnable.
 
 ```bash
-# run build_panel_light.ipynb top to bottom: ~3 minutes, peak 2.8 GB
+# run build_panel.ipynb top to bottom: ~3 minutes, peak 2.8 GB
 ```
+
+**Without the PitchBook data**, set `ESEMPIO = True` in the notebook's first cell
+and run it: it then reads the synthetic extraction in `data/example/pitchbook/`,
+takes about twenty seconds, and produces the panel released as
+`data/raw/example_panel.csv`. Every branch of the pipeline fires on those rows —
+the undated rounds, the person who joins two years in, the competitor that dies
+halfway, the company acquired and the one that closes — which makes it the
+shortest way to see what each phase does. `tests/test_example_pipeline.py` runs
+exactly that and checks the result value by value.
 
 Three switches at the top of the notebook — `TEMPORIZZA_PERSONE`,
 `TEMPORIZZA_INVESTITORI`, `TEMPORIZZA_COMPETITOR` — decide, for one group of
@@ -150,9 +167,10 @@ Each phase writes its parquet to `data/interim/` and the next reads it, so
 re-running one phase does not force the others and the kernel can be restarted
 at any point without losing work.
 
-Nothing writes to `data/raw/`. The finished panel lands in
-`data/interim/panel.parquet` and `data/interim/panel.csv.gz`, which is what
-`config/config.yaml` hands to `scripts/build_datasets.py`.
+Nothing writes to `data/raw/`. The finished panel lands in `data/interim/`, under
+the name its switch configuration earns it — `panel.*` with the temporization on,
+`panel_snapshot.*` with it off — and `config/config.yaml` hands both to
+`scripts/build_datasets.py`.
 
 ### Verification
 
@@ -218,7 +236,7 @@ W&B, without the datasets and without a GPU.
 
 `tests/test_integration.py` checks the contract **between the two notebooks**:
 every column `src/preprocessing.py` selects has to be one that
-`build_panel_light.ipynb` writes, the two must agree on the sample threshold, and
+`build_panel.ipynb` writes, the two must agree on the sample threshold, and
 `config/config.yaml` must point the dataset builder at the panel this pipeline
 actually produces. It reads the notebooks' source, not their output, so it needs
 neither the extraction nor a run.
@@ -281,10 +299,12 @@ The processed datasets carry `HQCountry` and `PrimaryIndustrySector` as **raw
 categories**: they are collapsed and frequency-encoded per split (see below), so
 the categories themselves have to survive preprocessing.
 
-- With the original panel this regenerates `dataset_window.csv` and
-  `dataset_nowindow.csv`.
-- Without the original panel, point `config['paths']['raw_dataset']` to
-  `data/raw/example_panel.csv` to run the pipeline on the synthetic example.
+- With the two panels this regenerates `dataset_window.csv` and
+  `dataset_nowindow.csv`: 30,007 firms each, 49 columns, the same companies in
+  both.
+- Without them, build the two panels from the synthetic extraction (`ESEMPIO =
+  True` in the panel notebook) and point `config['paths']` at what it writes: the
+  chain runs end to end, on rows small enough to follow by hand.
 
 > **Note.** The released `data/processed/dataset_window.csv` and
 > `data/processed/dataset_nowindow.csv` already contain the final datasets, so

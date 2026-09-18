@@ -1148,7 +1148,7 @@ non vengono mai usate. *Nella traduzione non le ho portate.*
 **X18 — `PercentAcquired`.** ~~Selezionata in `deals` e mai aggregata.~~
 **Chiusa il 2026-09-17: non esiste più.** È caduta con lo sfoltimento del panel
 leggero, insieme alle altre colonne che nessuno legge. *Verificato: zero
-occorrenze in `build_panel_light.ipynb`.*
+occorrenze in `build_panel.ipynb`.*
 
 **X19 — `DealType` concatenato.** ~~L'aggregazione produce una stringa tipo
 `"Accelerator/Incubator; Angel (individual)"`.~~

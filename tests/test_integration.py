@@ -1,6 +1,6 @@
 """The contract between the two notebooks.
 
-``build_panel_light.ipynb`` writes the panel; ``notebook.ipynb`` reads it through
+``build_panel.ipynb`` writes the panel; ``notebook.ipynb`` reads it through
 ``src/preprocessing.py``. The contract is a list of column names, and nothing
 enforces it at runtime: a column renamed in the notebook would surface as a
 polars error in the middle of a sweep, or worse as a silently missing feature.
@@ -19,7 +19,7 @@ import yaml
 from src.preprocessing import FEATURE_COLUMNS, TARGET_COLUMNS
 
 ROOT = Path(__file__).resolve().parents[1]
-PANEL_NOTEBOOK = ROOT / "build_panel_light.ipynb"
+PANEL_NOTEBOOK = ROOT / "build_panel.ipynb"
 MODEL_NOTEBOOK = ROOT / "notebook.ipynb"
 
 
@@ -92,12 +92,23 @@ def test_the_model_notebook_reads_the_processed_datasets_from_the_config():
     assert 'config["paths"]["dataset_nowindow"]' in codice
 
 
-def test_the_dataset_builder_is_pointed_at_the_panel_this_pipeline_writes():
-    # The old experiments read a panel produced by a previous pipeline. Leaving
-    # that path in place would rebuild the datasets from the wrong file.
+def test_the_dataset_builder_reads_the_two_panels_the_notebook_writes():
+    # One panel per switch configuration, and the datasets read one each: a name
+    # that drifts here would rebuild them from the wrong file, silently.
     config = yaml.safe_load((ROOT / "config" / "config.yaml").read_text())
     codice = _codice(PANEL_NOTEBOOK)
-    nome = Path(config["paths"]["raw_dataset"]).name
-    assert f'cfg.interim("{nome}")' in codice, (
-        f"config.yaml legge {config['paths']['raw_dataset']}, che il notebook del panel non scrive"
-    )
+    attesi = {
+        Path(config["paths"]["panel_timed"]).name: 'NOME_PANEL = "panel"',
+        Path(config["paths"]["panel_snapshot"]).name: 'else "panel_snapshot"',
+    }
+    for nome, riga in attesi.items():
+        assert nome.endswith(".csv.gz"), nome
+        assert riga in codice, f"il notebook non scrive {nome}"
+    assert 'cfg.interim(f"{NOME_PANEL}.csv.gz")' in codice
+
+
+def test_the_panel_notebook_admits_only_all_on_or_all_off():
+    # The two datasets differ in the switch configuration, so a panel built with
+    # a mixed one would belong to neither.
+    codice = _codice(PANEL_NOTEBOOK)
+    assert "assert all(INTERRUTTORI) or not any(INTERRUTTORI)" in codice

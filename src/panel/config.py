@@ -1,6 +1,6 @@
 """Paths of the panel pipeline.
 
-One frozen dataclass, instantiated once by ``build_panel_light.ipynb``. There is
+One frozen dataclass, instantiated once by ``build_panel.ipynb``. There is
 no seed and no imputation setting: the pipeline is deterministic, and no missing
 value is filled by a fitted model.
 """

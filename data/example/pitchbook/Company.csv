@@ -1,0 +1,12 @@
+CompanyID,YearFounded,HQCountry,PrimaryIndustrySector,OwnershipStatus,OwnershipStatusDate,CompanyFinancingStatusDate,BusinessStatusDate,FirstFinancingDate,LastKnownValuationDate,FiscalPeriod
+C1,2012,Italy,Information Technology,Privately Held,06/30/2020,09/15/2019,,04/10/2013,12/31/2019,TTM 2Q2020
+C2,2013,Italy,Healthcare,Acquired/Merged,03/20/2019,03/20/2019,03/20/2019,05/05/2014,,
+C3,2014,Spain,Information Technology,Out of Business,11/10/2018,,11/10/2018,02/01/2015,,
+C4,2015,France,Consumer Products and Services,Privately Held,01/31/2021,01/31/2021,,,,
+C5,2011,Germany,Energy,Privately Held,12/31/2019,07/01/2018,,03/12/2012,,TTM 4Q2019
+C6,1999,Italy,Materials and Resources,Privately Held,05/05/2015,,,,,
+C7,2016,Italy,Healthcare,Privately Held,08/08/2015,,,,,
+C8,2010,Portugal,Information Technology,Privately Held,04/04/2019,,,,,
+S1,2008,Italy,Information Technology,Privately Held,01/15/2021,,,,,
+S2,2009,Germany,Information Technology,Out of Business,06/30/2016,,,,,
+X1,2001,Italy,Information Technology,Privately Held,02/02/2012,,,,,

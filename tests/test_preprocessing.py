@@ -239,9 +239,9 @@ def test_a_missing_similarity_takes_the_mean_of_the_column():
     assert out["SimilarityScoreMean"].to_list() == [50.0] * 100
 
 
-def test_a_column_missing_on_more_than_forty_percent_of_the_rows_is_dropped():
-    tenuta = handle_missing_values(_dataset_mancanti(nulli_avg=39), flag_no_time_window=False)
-    scartata = handle_missing_values(_dataset_mancanti(nulli_avg=41), flag_no_time_window=False)
+def test_a_column_missing_on_more_than_half_the_rows_is_dropped():
+    tenuta = handle_missing_values(_dataset_mancanti(nulli_avg=49), flag_no_time_window=False)
+    scartata = handle_missing_values(_dataset_mancanti(nulli_avg=51), flag_no_time_window=False)
     assert "Avg_Earliest_Year" in tenuta.columns
     assert "Avg_Earliest_Year" not in scartata.columns
 
@@ -257,6 +257,24 @@ def test_the_rows_without_a_team_are_dropped_only_in_the_windowed_dataset():
     storia = handle_missing_values(dataset, flag_no_time_window=True)
     assert finestra.height == 99
     assert storia.height == 100
+
+
+def test_a_row_missing_six_of_its_features_is_dropped():
+    # The budget is per row, and it goes with the column threshold: five missing
+    # values out of ~49 is a row the imputation can still complete, six is not.
+    dataset = _dataset_mancanti()
+    vuote = ["Is_Eco", "Is_Eng", "Is_NS", "Is_Hum", "Is_SS", "Is_Med"]
+    with_five = dataset.with_columns(
+        [
+            pl.when(pl.col("CompanyID") == 0).then(None).otherwise(pl.col(c)).alias(c)
+            for c in vuote[:5]
+        ]
+    )
+    with_six = dataset.with_columns(
+        [pl.when(pl.col("CompanyID") == 0).then(None).otherwise(pl.col(c)).alias(c) for c in vuote]
+    )
+    assert handle_missing_values(with_five, flag_no_time_window=False).height == 100
+    assert handle_missing_values(with_six, flag_no_time_window=False).height == 99
 
 
 def test_the_no_window_dataset_keeps_every_column_so_the_two_stay_comparable():

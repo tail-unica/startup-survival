@@ -1,0 +1,12 @@
+DealID,InvestorID,InvestorStatus,IsLeadInvestor
+D1,I2,New Investor,Yes
+D2,I1,New Investor,Yes
+D2,I2,Follow-on Investor,No
+D3,I1,Follow-on Investor,Yes
+D3,I4,New Investor,No
+D4,I3,New Investor,Yes
+D6,I2,New Investor,Yes
+D9,I3,New Investor,Yes
+D11,I1,New Investor,Yes
+D12,I1,Follow-on Investor,Yes
+D14,I4,,No

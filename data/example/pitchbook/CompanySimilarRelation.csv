@@ -1,0 +1,7 @@
+CompanyID,SimilarCompanyID,SimilarityScore,IsCompetitor,SimilarCompanyHQCountry
+C1,S1,90,Yes,Italy
+C1,S2,70,Yes,Germany
+C1,S3,60,Yes,Italy
+C1,X1,40,No,Italy
+C3,S1,55,Yes,Italy
+C8,S3,80,Yes,Portugal

@@ -6,7 +6,7 @@ import polars as pl
 #: The panel columns the models read, in the order the datasets carry them.
 #: ``Target`` is built by :func:`build_windowed_dataset` or
 #: :func:`build_full_history_dataset`; every other name has to exist in the panel
-#: that ``build_panel_light.ipynb`` produces, which is what
+#: that ``build_panel.ipynb`` produces, which is what
 #: ``tests/test_integration.py`` checks.
 FEATURE_COLUMNS: list[str] = [
     "YearFounded",
@@ -499,7 +499,10 @@ def handle_missing_values(dataset, flag_no_time_window):
     if not flag_no_time_window:
         # Feature selection based on missing values threshold
 
-        threshold = 0.4
+        # A feature missing on more than half the rows is dropped: past that
+        # point the imputation would be inventing the column rather than
+        # completing it.
+        threshold = 0.5
 
         # Identify columns to keep based on the proportion of missing values
         cols_to_keep = [
@@ -515,7 +518,13 @@ def handle_missing_values(dataset, flag_no_time_window):
     if not flag_no_time_window:
         # Check if we are creating the time window dataset and if not, keep all the rows (we must
         # keep the same rows in all the experiments to make them comparable)
-        # otherwise drop those with 4 or more missing values
+        # otherwise drop the rows that are mostly empty.
+        #
+        # The budget goes with the column threshold above: at 50% the four
+        # sparsest features stay in, so a row missing exactly those is normal
+        # rather than pathological, and a budget of 4 would drop a fifth of the
+        # firms to keep them. Six missing out of ~49 still means a row that is
+        # almost 90% complete.
 
         # Count missing values per row and analyze the distribution
         datasetWithNoMissingValues = datasetWithNoMissingValues.with_columns(
@@ -523,7 +532,7 @@ def handle_missing_values(dataset, flag_no_time_window):
         )
 
         datasetWithNoMissingValues = datasetWithNoMissingValues.filter(
-            pl.col("null_count_row") < 4
+            pl.col("null_count_row") < 6
         ).drop("null_count_row")
 
     return datasetWithNoMissingValues

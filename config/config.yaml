@@ -1,6 +1,10 @@
 
 paths:
-  raw_dataset: "data/interim/panel.csv.gz"
+  # I due panel che build_panel.ipynb produce, uno per configurazione degli
+  # interruttori: attributi dell'anno il primo, fotografia all'estrazione il
+  # secondo. Il dataset con la finestra nasce dal primo, quello senza dal secondo.
+  panel_timed: "data/interim/panel.csv.gz"
+  panel_snapshot: "data/interim/panel_snapshot.csv.gz"
   raw_university_ranking: "data/raw/QS_World_Rankings.csv"
   dataset_window: "data/processed/dataset_window.csv"
   dataset_nowindow: "data/processed/dataset_nowindow.csv"
@@ -64,6 +68,7 @@ ablations:
     - Is_Law
     - Is_IT
     - WorkExperienceIndex_CEO
+    - Highest_Degree_CEO
     - Gender_CEO_Female
   nocompetitors:
     - SimilarityScoreMean

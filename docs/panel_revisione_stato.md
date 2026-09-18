@@ -41,7 +41,7 @@ mancanti (`tests/test_preprocessing.py`, prima interamente skippato), piu'
 encoding, split, SHAP e le sette famiglie di modelli.
 `tests/test_integration.py` verifica il **contratto fra i due notebook**: ogni
 colonna che `src/preprocessing.py` seleziona deve essere fra quelle che
-`build_panel_light.ipynb` scrive, e `config.yaml` deve puntare al panel giusto.
+`build_panel.ipynb` scrive, e `config.yaml` deve puntare al panel giusto.
 Gira tutto su GitHub Actions (`.github/workflows/tests.yml`: ruff, format, pytest).
 
 **Le fasi sono rinumerate da 1 a 7** e i blocchi in sequenza, senza buchi ne'
@@ -66,6 +66,100 @@ identico bit per bit (802.148 x 52).*
 somiglianza di parole al 50%, quindi un ateneo che condivide due parole su quattro
 con uno dei primi 50 risulta top 50. Il test la fissa e la dichiara; cambiarla
 sposterebbe una feature dei modelli, percio' resta una decisione aperta.
+
+## 2026-09-18 — l'estrazione sintetica di esempio
+
+Il panel e le tabelle PitchBook non sono redistribuibili, quindi il repository
+rilascia **un'estrazione inventata**: `scripts/make_example_data.py` scrive
+quattordici tabelle in `data/example/pitchbook/`, con le sole 57 colonne che la
+pipeline legge davvero.
+
+| tabella | colonne | tabella | colonne |
+|---|---:|---|---:|
+| `Company` | 11 | `PersonAdvisoryRelation` | 4 |
+| `CompanyBoardTeamRelation` | 8 | `PersonAffiliatedDealRelation` | 3 |
+| `Person` | 11 | `PersonAffiliatedFundRelation` | 3 |
+| `PersonEducationRelation` | 5 | `Fund` | 2 |
+| `PersonPositionRelation` | 5 | `Deal` | 8 |
+| `PersonBoardSeatRelation` | 4 | `DealInvestorRelation` | 4 |
+| `CompanySimilarRelation` | 5 | `Investor` | 5 |
+
+**Otto aziende, una storia per ciascuna**, scelte perche' ogni ramo del notebook
+scatti almeno una volta: chi cresce fino a un round later, chi viene acquisita,
+chi chiude, il primo round senza data portato alla fondazione, i due round di
+mezzo distribuiti nel buco, l'azienda fondata prima della soglia, quella con date
+anteriori alla fondazione e quella senza nessun round. Piu' nove persone (un
+fondatore senza data d'ingresso, un assunto datato, un non datato che non viene
+contato, chi si laurea a meta' panel, chi non dichiara il genere) e tre aziende
+che esistono solo come controparti, di cui una fuori estrazione.
+
+`ESEMPIO = True` nella prima cella fa leggere quelle tabelle: il notebook gira in
+**17 secondi** e produce un panel di **79 righe x 52 colonne** su 10 aziende, che
+e' anche il nuovo `data/raw/example_panel.csv` — ora un esempio del panel vero, e
+lo schema contro cui la cella delle invarianti si controlla.
+
+**`tests/test_example_pipeline.py` esegue il notebook su quei dati e verifica i
+valori attesi**, non un file d'oro confrontato alla cieca: le date riparate dai
+quattro passaggi, il fondatore contato dall'anno zero, il non datato mai contato,
+il concorrente che smette di contare quando muore, la simile che entra nella media
+ma non nei conteggi, il troncamento all'uscita, la quota di donne sul genere noto.
+Ventuno test, venti secondi, nessun dato PitchBook.
+
+## 2026-09-18 — i due panel e i due dataset
+
+**Gli interruttori hanno due sole configurazioni ammesse**, tutti accesi e tutti
+spenti, e il nome del file finale dice quale ha prodotto il panel: `panel.*` con
+gli attributi dell'anno, `panel_snapshot.*` con la fotografia all'estrazione. I
+due file convivono in `data/interim/`, quindi la costruzione dei dataset li legge
+entrambi senza rifare il panel. `TEMPORIZZA_INVESTITORI` **parte ora acceso**
+come gli altri due.
+
+*Verificato: i due panel hanno le stesse 802.148 righe, le stesse aziende e le
+stesse 52 colonne, con gli stessi (CompanyID, Age) nello stesso ordine — che e' la
+condizione perche' lo scambio del target su `CompanyID` fra i due dataset sia
+legittimo, e `scripts/build_datasets.py` lo controlla invece di assumerlo. Le
+colonne che cambiano sono le venti attese.*
+
+| colonna | temporizzato | fotografia |
+|---|---:|---:|
+| `WorkExp_Idx_Mean` | 0,063 | −0,118 |
+| `WorkExperienceIndex_CEO` | −0,011 | −0,168 |
+| `MeanTotalInvestments_cum` | 95,7 | 387,7 |
+| `MeanMedianRoundAmount_cum` | 4,08 | 4,11 |
+| `N_Competitors` | 0,238 | 1,311 |
+| `SimilarityScoreMean` | 54,5 | 90,8 |
+| `N_Similar` | 1,13 | 9,99 |
+
+**`dataset_window` nasce dal panel temporizzato e `dataset_nowindow` da quello
+fotografia**, cosi' tutto quel che il paper chiama look-ahead sta nel secondo:
+attributi che conoscono il futuro, feature misurate a posteriori, target senza
+orizzonte. `config.yaml` ha percorsi per entrambi i panel al posto dell'unico
+`raw_dataset`.
+
+**La soglia dei mancanti passa dal 40% al 50%** (decisa da Giulio il 2026-09-18).
+Serviva perche' temporizzare gli investitori rende piu' vuote
+`MeanTotalInvestments_cum` (42,8%) e `MeanMedianRoundAmount_cum` (48,6%), che al
+40% uscivano insieme a `Avg_Earliest_Year` (42,7%) e `Highest_Degree_CEO` (43,9%).
+
+**Con la soglia al 50% e' stato alzato anche il tetto dei mancanti per riga**, da
+«meno di 4» a «meno di 6»: le quattro colonne sparse ora restano, quindi una riga
+a cui mancano proprio quelle e' normale e non malata. *Misurato: al 50% con il
+tetto a 4 il dataset scendeva a 24.073 aziende su 30.131, con il tetto a 6 ne
+tiene 30.007; su 49 colonne, sei mancanti vogliono dire una riga completa
+all'88%.*
+
+| | valore |
+|---|---:|
+| `dataset_window` | 30.007 x 49, base rate 0,327 |
+| `dataset_nowindow` | 30.007 x 49, base rate 0,410 |
+| aziende in comune | tutte |
+
+`ablations.noteam` guadagna `Highest_Degree_CEO`, che prima non sopravviveva alla
+soglia e ora si: senza di lei l'ablazione «senza team» terrebbe un attributo del
+CEO.
+
+**Da rifare**: i run dei modelli, che sono l'unica cosa a valle ancora ferma ai
+dataset precedenti.
 
 ## Obiettivo
 
@@ -185,12 +279,12 @@ Sul notebook **leggero**, e in ordine di pipeline.
 **Cadute con le colonne eliminate**: B2 (`Is_Other`), B3 e X21 (`StageBlock`),
 X22, M17, M19, X15-X20.
 
-## `build_panel_light.ipynb` — la pipeline di lavoro
+## `build_panel.ipynb` — la pipeline di lavoro
 
 **Dal 2026-09-11 `build_panel.ipynb` e' un artefatto congelato**: ha dimostrato
 che la traduzione dall'R e' fedele (sei checkpoint verdi, quattordici confronti
 a divergenza zero) e non si tocca piu'. La pipeline su cui si lavora e'
-`build_panel_light.ipynb`.
+`build_panel.ipynb`.
 
 Produce **50 delle 53 colonne di `data/raw/example_panel.csv`** — con
 `TotalRaised` al posto di `TotalRaised_Est`, e senza le tre `*_All`, eliminate
@@ -312,7 +406,7 @@ Flag **spento** per default, come da accordo.
 
 ### Registro: fase 2 del leggero, 2026-09-14
 
-Tutte senza flag, scritte direttamente in `build_panel_light.ipynb`.
+Tutte senza flag, scritte direttamente in `build_panel.ipynb`.
 
 1. **Solo le aziende dello scheletro (2a.1).** Si leggono 466.312 incarichi su
    535.568. `YearFounded` e l'ultimo anno di vita arrivano dallo scheletro:

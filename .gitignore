@@ -19,3 +19,7 @@ docs/review.txt
 # Dati sorgente PitchBook e output della pipeline (non redistribuibili)
 data/raw/pitchbook/
 data/interim/
+
+# Output di fase dell'esempio: si rigenerano eseguendo il notebook.
+# data/example/pitchbook/ invece e' committato: e' l'estrazione sintetica.
+data/example/interim/

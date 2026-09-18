@@ -1,0 +1,16 @@
+CompanyID,PersonID,PersonName,FullTitle,IsCurrent,StartDate,EndDate,LastUpdated
+C1,P1,Anna Rossi,Co-Founder & CEO,Yes,,,01/10/2021
+C1,P2,Marco Bianchi,Chief Technology Officer,Yes,07/01/2016,,01/10/2021
+C1,P3,Chiara Verdi,Chief Financial Officer,Yes,,,01/10/2021
+C1,P4,Luca Neri Ph.D,Board Member,No,01/01/2015,12/31/2018,02/02/2019
+C1,P4,Luca Neri Ph.D,Board Member,Yes,01/01/2015,,05/05/2020
+C2,P5,Sara Gallo,Founder,Yes,,,03/03/2019
+C2,P6,Paolo Conti,Chief Executive Officer,Yes,01/01/2014,,03/03/2019
+C3,P8,Davide Mori,Founder,No,01/01/2014,06/30/2016,01/01/2019
+C3,P8,Davide Mori,Chief Executive Officer,No,07/01/2016,11/10/2018,01/01/2019
+C3,P9,Kim Park,Head of Operations,Yes,01/01/2015,,01/01/2019
+C4,P6,Paolo Conti,Co-Founder,Yes,01/01/2015,,01/01/2021
+C5,P7,Elena Ferri,Founder & Chairman,Yes,,,01/01/2020
+C5,P2,Marco Bianchi,Advisor,No,01/01/2013,12/31/2015,01/01/2020
+C7,P5,Sara Gallo,Founder,Yes,,,01/01/2017
+C8,P1,Anna Rossi,Founder,Yes,,,01/01/2019
