@@ -3,6 +3,72 @@ import re
 import pandas as pd
 import polars as pl
 
+#: The panel columns the models read, in the order the datasets carry them.
+#: ``Target`` is built by :func:`build_windowed_dataset` or
+#: :func:`build_full_history_dataset`; every other name has to exist in the panel
+#: that ``build_panel_light.ipynb`` produces, which is what
+#: ``tests/test_integration.py`` checks.
+FEATURE_COLUMNS: list[str] = [
+    "YearFounded",
+    "Age",
+    "N_Deal",
+    "TotalRaised",
+    "UndisclosedAmountShare",
+    "Percent_Females",
+    "Is_Eco",
+    "Is_Eng",
+    "Is_NS",
+    "Is_Hum",
+    "Is_SS",
+    "Is_Med",
+    "Is_Law",
+    "Is_IT",
+    "Institute",
+    "WorkExp_Idx_Mean",
+    "Total_Founders",
+    "Is_Debt",
+    "Is_SpinOff",
+    "Is_CrowdFunding",
+    "MeanMedianRoundAmount_cum",
+    "Is_Accelerator",
+    "has_Corporate",
+    "has_VentureCapital",
+    "has_PublicInvestor",
+    "has_Angel_Lead",
+    "has_Corporate_Lead",
+    "has_VentureCapital_Lead",
+    "has_Accelerator_Lead",
+    "has_PrivateEquity_Lead",
+    "has_PublicInvestor_Lead",
+    "HQCountry",
+    "PrimaryIndustrySector",
+    "SimilarityScoreMean",
+    "N_Competitors",
+    "Same_Country",
+    "Highest_Degree_CEO",
+    "Gender_CEO",
+    "MeanTotalInvestments_cum",
+    "WorkExperienceIndex_CEO",
+    "Is_Angel",
+    "Total_People",
+    "Is_Grant",
+    "has_PrivateEquity",
+    "TotalInvestors",
+    "Highest_Degree_Mean",
+    "Avg_Earliest_Year",
+]
+
+#: Columns :func:`build_windowed_dataset` needs to place a firm in time and to read
+#: its target. They belong to the panel too, but they never reach the models.
+TARGET_COLUMNS: list[str] = [
+    "CompanyID",
+    "Age",
+    "YearFounded",
+    "GrowthStageGroup",
+    "GrowthNextStageGroup",
+    "TimeNextStageGroup",
+]
+
 
 def process_university_list(path):
     """
@@ -263,11 +329,6 @@ def build_windowed_dataset(initialPanel, TimeWindow=7, lastYear=2024):
         & (pl.col("YearFounded") + pl.col("Age") >= 2010)
     )
 
-    # Le tre colonne *_All non esistono piu' nel panel (eliminate il 2026-09-17):
-    # la terna competitor e' una sola e il suo contenuto lo decide
-    # TEMPORIZZA_COMPETITOR in fase di costruzione del panel. Qui non c'e' piu'
-    # niente da scartare.
-
     return datasetWithTimeWindow
 
 
@@ -310,14 +371,13 @@ def build_full_history_dataset(initialPanel, dataset_window):
                 )
                 .sort_by("Age")
                 .last(),
-                # TotalRaised sostituisce TotalRaised_Est, che non esiste piu':
-                # l'imputazione RandomForest da cui nasceva e' stata eliminata
-                # (voce M11), e TotalRaised somma gli importi davvero dichiarati.
+                # Capital adds up over the firm's life, so the full history is
+                # the sum of the yearly amounts.
                 pl.col("TotalRaised").sum(),
-                # UndisclosedAmountShare e' una QUOTA, non un importo: sommarla non
-                # vorrebbe dire niente e prenderne l'ultimo anno nemmeno, quindi si
-                # media sugli anni dell'azienda. Dice quanta parte dei suoi round
-                # non dichiara l'importo, cioe' quanto e' affidabile TotalRaised.
+                # A share is not an amount: summing it would mean nothing and
+                # keeping its last year would ignore the rest, so it is averaged
+                # over the firm's years. It says how much of the capital raised
+                # was never disclosed, which is how reliable TotalRaised is.
                 pl.col("UndisclosedAmountShare").mean(),
                 pl.col("WorkExp_Idx_Mean").mean(),
                 pl.col("Highest_Degree_Mean").mean(),
@@ -328,18 +388,11 @@ def build_full_history_dataset(initialPanel, dataset_window):
 
     df_target_final = df_no_tw.rename({"GrowthNextStageGroup": "Target"})
 
-    # Prima qui si buttavano le tre colonne competitor temporizzate e si
-    # rinominavano le *_All al loro posto, perche' il panel le portava entrambe.
-    # Ora ce n'e' una sola terna: per avere la versione SENZA temporizzazione si
-    # ricostruisce il panel con TEMPORIZZA_COMPETITOR spento, e queste colonne
-    # contengono gia' i valori giusti.
-    df_target_final = (
-        df_target_final
-        .with_columns(
-            pl.col("N_Competitors").fill_null(0),
-            pl.col("Same_Country").fill_null(0),
-            pl.col("SimilarityScoreMean").fill_null(0.0),
-        )
+    # A firm with no competitor has a count of zero, not a missing value.
+    df_target_final = df_target_final.with_columns(
+        pl.col("N_Competitors").fill_null(0),
+        pl.col("Same_Country").fill_null(0),
+        pl.col("SimilarityScoreMean").fill_null(0.0),
     )
 
     return df_target_final
@@ -368,7 +421,7 @@ def create_has_top50_institute_flag(dataset, university_ranking_path):
         .alias("HasTop50Institute")
     )
 
-    # Drop the original "Institute" column as it's no longer needed
+    # Drop the "Institute" column: the flag is what the models read
     datasetWithUniversityFlag = datasetWithUniversityFlag.drop("Institute")
 
     return datasetWithUniversityFlag
@@ -504,59 +557,7 @@ def preprocess_dataset(dataset, university_ranking_path, flag_no_time_window=Fal
     """
 
     # Select only the relevant columns for the features and the target variable
-    filteredDataset = dataset.select(
-        [
-            "CompanyID",
-            "Target",
-            "YearFounded",
-            "Age",
-            "N_Deal",
-            "TotalRaised",
-            "UndisclosedAmountShare",
-            "Percent_Females",
-            "Is_Eco",
-            "Is_Eng",
-            "Is_NS",
-            "Is_Hum",
-            "Is_SS",
-            "Is_Med",
-            "Is_Law",
-            "Is_IT",
-            "Institute",
-            "WorkExp_Idx_Mean",
-            "Total_Founders",
-            "Is_Debt",
-            "Is_SpinOff",
-            "Is_CrowdFunding",
-            "MeanMedianRoundAmount_cum",
-            "Is_Accelerator",
-            "has_Corporate",
-            "has_VentureCapital",
-            "has_PublicInvestor",
-            "has_Angel_Lead",
-            "has_Corporate_Lead",
-            "has_VentureCapital_Lead",
-            "has_Accelerator_Lead",
-            "has_PrivateEquity_Lead",
-            "has_PublicInvestor_Lead",
-            "HQCountry",
-            "PrimaryIndustrySector",
-            "SimilarityScoreMean",
-            "N_Competitors",
-            "Same_Country",
-            "Highest_Degree_CEO",
-            "Gender_CEO",
-            "MeanTotalInvestments_cum",
-            "WorkExperienceIndex_CEO",
-            "Is_Angel",
-            "Total_People",
-            "Is_Grant",
-            "has_PrivateEquity",
-            "TotalInvestors",
-            "Highest_Degree_Mean",
-            "Avg_Earliest_Year",
-        ]
-    )
+    filteredDataset = dataset.select(["CompanyID", "Target", *FEATURE_COLUMNS])
 
     # Create the "HasTop50Institute" flag based on the "Institute" column and the top 50
     # universities list

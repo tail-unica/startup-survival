@@ -14,12 +14,15 @@ CHECKPOINT = "tabpfn-v2-classifier-v2_default.ckpt"
 
 
 class TabPFNModel(Model):
+    """TabPFN v2, built from the ``tabpfn_*`` keys of the sweep."""
+
     # Imputed but unscaled, like the trees: TabPFN normalises its inputs
     # internally and does not want RobustScaler output.
     wants_scaled = False
 
     @classmethod
     def from_sweep(cls, cfg, seed):
+        """Build the classifier from the ``tabpfn_*`` keys."""
         return cls(
             TabPFNClassifier(
                 model_path=CHECKPOINT,
@@ -42,12 +45,14 @@ class TabPFNModel(Model):
         )
 
     def score(self, X):
+        """Decide at p >= 0.5, reusing the single forward pass."""
         # For a binary task predict() is argmax(predict_proba), i.e. the same
         # p >= 0.5 rule, so calling it would pay for a second forward pass over
         # the same rows.
         return self.score_by_threshold(X)
 
     def explain(self, split, shap_cfg):
+        """Explain with PermutationExplainer, on the budget from config.yaml."""
         # PermutationExplainer, on an explicit budget: TabPFN runs a full
         # forward pass per evaluation, so KernelExplainer is out of reach.
         sample = split["X_test_imp"][: shap_cfg["n_explain"]]

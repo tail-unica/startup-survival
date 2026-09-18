@@ -3,9 +3,7 @@ venv/
 wandb/
 img/
 
-data/raw/panel.csv.gz
-
-# Temporary files
+# Temporary files, and the split cache
 tmp/
 
 __pycache__/
@@ -18,15 +16,6 @@ __pycache__/
 # Reviewer comments on the unpublished paper
 docs/review.txt
 
-# Dati sorgente PitchBook e output intermedi degli script R (non redistribuibili)
+# Dati sorgente PitchBook e output della pipeline (non redistribuibili)
 data/raw/pitchbook/
-data/reference/
 data/interim/
-data/interim_light/
-
-# Script R originali: impalcatura temporanea, cancellata quando il port in
-# Python e' tradotto e validato. Contengono percorsi assoluti personali.
-src/RCode/
-
-# Base di confronto congelata prima della migrazione nel notebook
-data/baseline/

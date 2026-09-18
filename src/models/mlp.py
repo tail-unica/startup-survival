@@ -25,7 +25,16 @@ KERNEL_NSAMPLES = 1000
 
 
 class MLP(nn.Module):
+    """The network itself: tanh layers with optional batch norm and dropout."""
+
     def __init__(self, input_size, hidden_sizes, dropout_rate=0.3, batch_norm=True):
+        """Stack the layers.
+
+        :param input_size: Number of features.
+        :param hidden_sizes: Width of each hidden layer, or one int for a single one.
+        :param dropout_rate: Dropout applied after every hidden layer.
+        :param batch_norm: Whether to insert a batch-norm layer after each linear one.
+        """
         super().__init__()
 
         if isinstance(hidden_sizes, int):
@@ -51,15 +60,35 @@ class MLP(nn.Module):
         self.layers.append(nn.Linear(hidden_sizes[-1], 1))
 
     def forward(self, x):
+        """Run the batch through the stack.
+
+        :param x: Input batch.
+        :return: Logits, one per row.
+        """
         for layer in self.layers:
             x = layer(x)
         return x
 
 
 class MLPModel(Model):
+    """The family that trains :class:`MLP`, from the ``mlp_*`` keys of the sweep.
+
+    The network is built in :meth:`fit`, because its input size is known only
+    once the design matrix is in hand.
+    """
+
     wants_scaled = True
 
     def __init__(self, hidden_sizes, learning_rate, dropout_rate, weight_decay, batch_size, seed):
+        """Keep the hyperparameters until :meth:`fit` can build the network.
+
+        :param hidden_sizes: Width of each hidden layer.
+        :param learning_rate: Adam learning rate.
+        :param dropout_rate: Dropout applied after every hidden layer.
+        :param weight_decay: Adam weight decay.
+        :param batch_size: Rows per batch.
+        :param seed: Seed of this run, used for the weights and the shuffle order.
+        """
         super().__init__(model=None, seed=seed)
         self.hidden_sizes = hidden_sizes
         self.learning_rate = learning_rate
@@ -70,6 +99,7 @@ class MLPModel(Model):
 
     @classmethod
     def from_sweep(cls, cfg, seed):
+        """Build the family from the ``mlp_*`` keys and the shared ones."""
         return cls(
             hidden_sizes=[int(x) for x in cfg.hidden_sizes.split(",")],
             learning_rate=cfg.mlp_learning_rate,
@@ -80,6 +110,13 @@ class MLPModel(Model):
         )
 
     def _loader(self, X, y, shuffle=False):
+        """Wrap a matrix and its labels in a DataLoader.
+
+        :param X: Design matrix.
+        :param y: Labels.
+        :param shuffle: Whether to shuffle, with a seeded generator.
+        :return: The loader.
+        """
         X_t, y_t = to_tensors(X, y)
         if not shuffle:
             return DataLoader(TensorDataset(X_t, y_t), batch_size=self.batch_size)
@@ -94,6 +131,14 @@ class MLPModel(Model):
         )
 
     def fit(self, X_train, y_train, X_val=None, y_val=None):
+        """Train the network, stopping early on the validation loss.
+
+        :param X_train: Training matrix, scaled.
+        :param y_train: Training labels.
+        :param X_val: Validation matrix, scaled; required here, unlike the other
+            families, because early stopping reads it.
+        :param y_val: Validation labels.
+        """
         train_loader = self._loader(X_train, y_train, shuffle=True)
         val_loader = self._loader(X_val, y_val)
 
@@ -189,6 +234,7 @@ class MLPModel(Model):
         self.model.eval()
 
     def predict_proba(self, X):
+        """Score the positive class in input order."""
         # Labels are needed to build the loader but not used: get_probs returns
         # them in input order, so they match the y the caller already holds.
         loader = self._loader(X, np.zeros(len(X)))
@@ -196,12 +242,17 @@ class MLPModel(Model):
         return probs
 
     def score(self, X):
+        """Decide at p >= 0.5, reusing the single forward pass."""
         # One forward pass: predict() would run the network a second time over
         # the same rows.
         return self.score_by_threshold(X)
 
     def _predict_array(self, x):
-        """Probability of the positive class for a raw numpy batch, for SHAP."""
+        """Score a raw numpy batch, which is what SHAP hands to the callable.
+
+        :param x: Batch of rows.
+        :return: Probability of the positive class, one per row.
+        """
         self.model.eval()
         with torch.no_grad():
             t = torch.tensor(x, dtype=torch.float32).to(self.device)
@@ -209,6 +260,7 @@ class MLPModel(Model):
             return torch.sigmoid(logits).cpu().numpy().flatten()
 
     def explain(self, split, shap_cfg):
+        """Explain with KernelExplainer, on a small seeded background sample."""
         sample = split["X_test_scaled"][:N_EXPLAIN_CHEAP]
         background = shap.sample(split["X_train_scaled"], KERNEL_BACKGROUND, random_state=self.seed)
         explainer = shap.KernelExplainer(self._predict_array, background)

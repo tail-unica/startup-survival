@@ -31,7 +31,14 @@ MODELS: dict[str, type[Model]] = {
 
 
 def build(model_type: str, cfg, seed: int) -> Model:
-    """Build the family named by ``model_type`` from one sweep run's config."""
+    """Build the family named by ``model_type`` from one sweep run's config.
+
+    :param model_type: Key of :data:`MODELS`, as config.yaml's sweep declares it.
+    :param cfg: One sweep run's ``wandb.config``.
+    :param seed: Seed of this run.
+    :return: The built family.
+    :raises ValueError: If ``model_type`` names no family.
+    """
     try:
         family = MODELS[model_type]
     except KeyError:

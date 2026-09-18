@@ -49,8 +49,11 @@ exclude = ["src/RCode"]
 line-length = 100
 
 # ruff formats Python blocks inside Markdown, and the spec and plan documents
-# quote code as it was written.
-extend-exclude = ["docs/"]
+# quote code as it was written. The notebooks are excluded too: they are the
+# pipeline's prose as much as its code, their comment lines are meant to be read
+# at full width, and every cell that frees a variable with `del` looks like an
+# undefined name to a whole-file analysis.
+extend-exclude = ["docs/", "*.ipynb"]
 
 [tool.ruff.lint]
 # E   pycodestyle errors      N   PEP 8 naming
@@ -62,3 +65,8 @@ select = ["E", "F", "I", "N", "UP", "B"]
 # this code follows throughout; lowercasing X_train would diverge from the API
 # it calls. Only function names are held to PEP 8 (N802).
 ignore = ["N803", "N806", "N816"]
+
+[tool.pytest.ini_options]
+# The suite needs no data and no network: unit tests on hand-written rows, plus
+# the integration test that reads the notebooks' source.
+testpaths = ["tests"]

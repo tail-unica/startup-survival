@@ -1,1 +1,1 @@
-"""Python reimplementation of the R panel-construction pipeline."""
+"""Helpers of the panel-construction pipeline."""

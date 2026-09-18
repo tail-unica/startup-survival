@@ -1,12 +1,71 @@
 # Panel — stato della revisione fase per fase
 
-Ultimo aggiornamento: 2026-09-17 (fase 7: competitor dietro interruttore,
-colonne `_All` eliminate, `N_Similar` aggiunta — la revisione fase per fase è
-arrivata in fondo; più la chiusura dei due residui di M0)
+Ultimo aggiornamento: 2026-09-18 (i non founder senza data d'ingresso non
+entrano più nelle colonne di team: registro in coda. Prima: fase 7, competitor
+dietro interruttore, colonne `_All` eliminate, `N_Similar` aggiunta — la
+revisione fase per fase è arrivata in fondo; più la chiusura dei due residui di M0)
 
 Questo file è il punto di ripresa. Se la sessione di lavoro si interrompe,
 basta questo file più `git log` per riprendere senza ricostruire niente.
 **Va aggiornato alla fine di ogni fase.**
+
+## 2026-09-18 — la pulizia per l'integrazione nella repo iniziale
+
+La pipeline Python prende il posto di quella in R, quindi tutto quel che serviva
+solo a dimostrare la fedelta' all'R e' stato **cancellato** (Giulio ne ha una
+copia a parte):
+
+- `build_panel.ipynb` e `notebook_temporizzazione_competitors.ipynb`;
+- `src/RCode/`, `src/panel/validate.py`, `src/panel/data/europe.csv`,
+  `scripts/check_extraction.py`, `scripts/derive_europe_mapping.py`;
+- i dieci flag `fix_*` e `BUG_FLAGS` di `PanelConfig`, e da `rutils.py` le
+  funzioni che restavano solo per il notebook congelato (`quantile_type7`,
+  `scale_r`, `rle_sequence`, `stage_block`, `coalesce_first_last`, `R_NA`);
+  da `io.py`, `to_int`, `RAW_ROW_COUNTS` e `load_europe`;
+- `data/baseline/`, `data/interim/` (la vecchia), `data/interim_prova/`,
+  `data/reference/`, `data/raw/panel.csv.gz`, `tmp/`, `wandb/`: da 7,3 a 4,6 GB.
+
+**`data/interim_light/` si chiama ora `data/interim/`** e `config.yaml` legge il
+panel da `data/interim/panel.csv.gz`, cioe' quello che questa pipeline scrive.
+`expand_team` prende `min_founding_year` con confronto inclusivo, come le altre
+due fasi, invece della soglia stretta che serviva al notebook congelato.
+
+*Verificato: il notebook rigira intero e il panel e' identico bit per bit a prima
+della pulizia (802.148 x 52), invarianti verdi.*
+
+**I test sono 169 e non leggono i dati.** Ognuno costruisce le righe che gli
+servono, quindi quel che fallisce e' la logica e non un'estrazione: le semantiche
+R (`tests/panel/`), la regola che tiene fuori dal team chi non ha una data
+d'ingresso (`tests/panel/test_expansions.py`), il target e la politica sui
+mancanti (`tests/test_preprocessing.py`, prima interamente skippato), piu'
+encoding, split, SHAP e le sette famiglie di modelli.
+`tests/test_integration.py` verifica il **contratto fra i due notebook**: ogni
+colonna che `src/preprocessing.py` seleziona deve essere fra quelle che
+`build_panel_light.ipynb` scrive, e `config.yaml` deve puntare al panel giusto.
+Gira tutto su GitHub Actions (`.github/workflows/tests.yml`: ruff, format, pytest).
+
+**Le fasi sono rinumerate da 1 a 7** e i blocchi in sequenza, senza buchi ne'
+«bis»: la vecchia 2a e' la 2, la 2b e' la 3, e i riferimenti di questo documento
+alle celle vecchie (2a.9, 2a.3bis, 4.5bis...) vanno letti con quella mappa.
+
+**I commenti sono stati riscritti** perche' spieghino cosa fa il codice e
+perche', senza citare l'R ne' il percorso di revisione. Nel notebook le
+spiegazioni stanno nelle celle di testo, una per fase piu' quattro sui passaggi
+piu' densi (esperienza, ingresso e uscita delle persone, date dei round, CEO); nel
+codice restano un'intestazione per cella e dieci commenti brevi. Di conseguenza
+`src/panel/rutils.py` e' diventato **`src/panel/expressions.py`** e gli
+identificativi che citavano l'R sono stati rinominati per quello che fanno:
+`R_NA_NAN` -> `MISSING_TOKENS`, `R_NA_INF` -> `MISSING_TOKENS_WITH_INF`,
+`as_na` -> `nullify`, `parse_date_r` -> `parse_date`, `cumany` ->
+`cumulative_any`, `tail_na_omit` -> `last_non_null`, `r_if_else` ->
+`if_else_null`, `r_cum_sum` -> `cum_sum_null`, `r_seq` -> `seq_inclusive`,
+`r_case_when` -> `first_match`. *Verificato: il notebook rigira e il panel e'
+identico bit per bit (802.148 x 52).*
+
+**Una cosa trovata scrivendo i test:** `HasTop50Institute` fa match anche per
+somiglianza di parole al 50%, quindi un ateneo che condivide due parole su quattro
+con uno dei primi 50 risulta top 50. Il test la fissa e la dichiara; cambiarla
+sposterebbe una feature dei modelli, percio' resta una decisione aperta.
 
 ## Obiettivo
 
@@ -203,12 +262,14 @@ gia' dimostrata e registrata qui.
 | righe | 802.148 |
 | aziende | 116.312 |
 | colonne | 52 |
-| righe con dati di team | 749.847 |
+| righe con dati di team | 700.699 |
 | righe con `GrowthStageGroup` | 561.333 |
 | righe con `Age < 0` | 0 |
-| tempo di esecuzione | 2 min 41 s, picco 2,11 GB |
+| tempo di esecuzione | 3 min, picco 2,8 GB (l'espansione di 2b passa da 3,71 a 2,34 milioni di righe) |
 
-*Aggiornato il 2026-09-17, dopo la fase 7 (registri qui sotto).*
+*Aggiornato il 2026-09-18, dopo l'esclusione dei non founder senza data
+(registro in coda). Righe, aziende, colonne e righe con stadio non sono
+cambiate: cambiano solo le colonne di team.*
 
 **La revisione fase per fase e' arrivata in fondo** (1 → 7). Quel che resta
 non e' piu' una fase del notebook ma una lista di questioni aperte: vedi
@@ -774,6 +835,104 @@ sul 35,7% (correlazione 0,492). Ma la scomposizione assolve i dati: sulle
 **227.625 righe** che attraversano il confine 0 / non-0.* L'instabilita' era
 nella convenzione, non nella sorgente.
 
+### Registro: i non founder senza data d'ingresso, 2026-09-18
+
+**Il buco.** La cella 2a.9 faceva partire dalla fondazione chiunque non avesse
+una `StartDate`, founder o no. A `StartingAge` quelle persone erano il **36,4%**
+di quelle contate, in 15.373 aziende del dataset su 32.752.
+
+**Il banco di prova.** Sui non founder che una data ce l'hanno (42.064 nelle
+aziende del dataset), fingendo che mancasse:
+
+| regola | anno esatto | entro 1 anno | contati in anticipo a `StartingAge` | davvero presenti e persi |
+|---|---:|---:|---:|---:|
+| fondazione (la regola di prima) | 16,7% | 31,7% | **30.557** | 0 |
+| nessuna imputazione | — | — | **0** | 11.471 |
+| fondazione + anticipo mediano | 9,8% | 30,0% | 0 | 11.123 |
+| primo deal affiliato, poi mediana | 19,7% | 38,2% | 182 | 9.850 |
+
+*Errore medio per azienda sul numero di non founder a `StartingAge`, contati
+meno veri: con la fondazione **+3,48** fra le aziende con target Later e +0,84
+fra le Out, cioe' l'errore diceva il target; senza imputazione l'errore e' per
+difetto e quasi uguale per ogni target (da −0,74 a −1,13).*
+
+**Scartate le regole con una statistica** (anticipo mediano per ruolo e coorte,
+peso pari alla probabilita' di essere entrati): la mediana si calcola anche su
+ingressi di anni successivi, quindi e' look-ahead — **deciso da Giulio il
+2026-09-18**, e vale come criterio generale per le prossime imputazioni. Una
+mediana a finestra espansiva darebbe lo stesso risultato della non imputazione,
+perche' resta sopra i 2 anni e `StartingAge` vale al massimo 2. Scartati anche
+il primo deal affiliato (1.301 casi su 45.739) e l'anno di uscita vera (170
+persone recuperate): troppo poco per il codice in piu'.
+
+**La regola adottata (2a.9).** Una `StartDate` mancante si imputa solo ai
+founder, per cui vale l'anno zero (M5). Per gli altri resta nulla, `DeltaStart`
+resta nullo e `expand_team` li esclude dall'espansione. **Le righe non si
+cancellano da `db3`**: servono al join del CEO in 5.6, dove conta chi e' la
+persona, non da quando c'e'. In 2a.10 il confronto `StartDate > UltimoAnno` ha
+ora un `fill_null(False)`, altrimenti `filter` scarterebbe quelle righe.
+
+*Misurato: 134.894 coppie su 465.861 escluse dalle colonne di team. Righe
+(802.148), aziende (116.312), colonne (52) e righe con stadio (561.333) non
+cambiano; le righe con dati di team passano da 749.847 a **700.699**.*
+
+| colonna | righe cambiate | prima → dopo |
+|---|---:|---|
+| `Total_People` | 413.113 | media 4,287 → **2,861** |
+| `Percent_Females` | 233.475 | media 14,29 → 13,17 |
+| `Highest_Degree_Mean` | 182.588 | valorizzata su 517.327 → 462.908 |
+| `Institute` | 159.082 | valorizzata su 401.651 → 348.011 |
+| `Avg_Earliest_Year` | 154.759 | media 1999,18 → 1999,55 |
+| flag delle aree | 58.022 – 101.879 | `Is_Eco` vera sul 43,1% → 37,5% |
+| `Total_Founders` | 49.148 | media 1,88 → 2,01 (cambia solo dove il team sparisce del tutto) |
+| `WorkExp_Idx_Mean` | tutte | media 0,0593 → 0,0631 |
+| `WorkExperienceIndex_CEO` | tutte | media 0,0299 → −0,0111 |
+
+I due indici cambiano su **tutte** le righe perche' la popolazione su cui si
+standardizza e' ora quella delle persone davvero note come presenti: 2,34
+milioni di coppie (persona, anno) invece di 3,71. Il valore del CEO cambia
+anche dove il CEO e' lo stesso, ed e' atteso.
+
+**Effetto sul dataset dei modelli.** Le 32.752 aziende e i quattro target sono
+**identici** (Early 13.958, Out 8.659, Later 6.588, Exit 3.547): la regola non
+tocca gli stadi. Cambiano le feature di team, e il legame col target si
+sgonfia.
+
+| target | `Total_People` prima | dopo | `Total_Founders` dopo | aziende che perdono il team |
+|---|---:|---:|---:|---:|
+| Early | 3,37 | 2,39 | 2,11 | 801 |
+| Exit | 4,75 | 3,22 | 2,54 | 91 |
+| Later | **6,54** | **3,32** | 2,78 | 93 |
+| Out | 2,58 | 2,26 | 1,97 | 463 |
+
+Il divario Later − Out passa da 3,96 a 1,06 persone, e quello Later − Early da
+3,17 a 0,93: era in gran parte composto da persone entrate dopo. I mancanti nel
+dataset salgono: `Total_People` e le colonne di team dal 3,6% all'**8,0%**,
+`Highest_Degree_Mean` dal 29,8% al 35,3%, `Institute` dal 45,6% al 51,6%.
+Nessuna supera la soglia del 40% di `handle_missing_values` che non la superasse
+gia'. `Gender_CEO` e `WorkExperienceIndex_CEO` restano al 5,8% e 5,4%, perche'
+le righe di `db3` non sono state cancellate.
+
+**Una feature cade a valle: `Avg_Earliest_Year`.** *Provata in memoria la catena
+di `scripts/build_datasets.py` sul panel nuovo, senza scrivere niente:
+`window` passa da 30.284 x 48 a **30.081 x 47**, `nowindow` da 31.700 x 49 a
+30.433 x 49 (poi allineato alle colonne di `window`). La colonna persa e'
+`Avg_Earliest_Year`: i suoi mancanti nel dataset salgono dal 41,3% al **47,5%**,
+e `handle_missing_values` applica la soglia del 40% DOPO aver scartato le righe
+senza `Total_People`, quindi prima restava dentro e ora no.* Da decidere se
+tenerla alzando la soglia o accettare di perderla: e' l'anno di laurea medio del
+team, ed e' la colonna di team con la copertura peggiore.
+
+**Da dichiarare nell'articolo.** I non datati non sono identici ai datati: piu'
+spesso in carica (57% contro 43%), meno spesso con una `EndDate` (10% contro
+27%), in aziende piu' giovani (la quota senza data sale dal 37,5% della coorte
+2000 al 65% della 2020) e piu' spesso C-level o advisor. Il banco e' quindi
+un'indicazione forte, non una prova. Secondo il banco si perde anche il ~27% di
+non datati che era davvero presente: e' il prezzo pagato per non contare il 73%
+che non lo era. **Scartata l'idea di una colonna col numero di non datati**:
+vale 3,24 nelle aziende Later e 0,42 nelle Out, quindi sarebbe essa stessa
+leakage.
+
 **Attenzione a `data/raw/panel.csv.gz`:** non e' il panel R. E' l'output del
 notebook di temporizzazione dei competitor di Giulio (122 colonne, 882.324
 righe, `Same_Country` gia' come conteggio, ID rinumerati). Il panel R puro e'
@@ -815,6 +974,15 @@ dichiarati: e' fra le decisioni aperte.
    decidere se rinominarlo, visto che **non e' nemmeno il panel R**.
 4. **Voci X11/X23**: la mappa Europa serve solo al checkpoint B. Si elimina
    quando la fedeltà smette di essere l'obiettivo.
+5. **Le due riparazioni condizionate a un evento futuro.** Il CEO riempito dal
+   board (5.6) si riempie solo se un round successivo lo dichiara — *misurato:
+   109 aziende del dataset, con target Later al 31% contro il 21% delle altre* —
+   e il passaggio 4 delle date dei deal (4.4) recupera un round solo se esiste
+   un round datato dopo di lui, effetto non misurato. **Giulio, 2026-09-18: non
+   sono look-ahead**, perche' ricostruiscono un fatto passato con dati che in
+   un'anagrafica registrata bene ci sarebbero gia'. Resta che la *possibilita'*
+   di ripararli dipende da un evento futuro legato al target: si dichiarano come
+   riparazioni condizionate.
 
 ## I file da leggere, in ordine
 

@@ -31,6 +31,7 @@ class _TreeModel(Model):
     """
 
     def explain(self, split, shap_cfg):
+        """Explain with TreeExplainer, on the raw test frame."""
         sample = split["X_test"].iloc[:N_EXPLAIN_CHEAP]
         result = shap.TreeExplainer(self.model).shap_values(sample)
 
@@ -48,8 +49,11 @@ class _TreeModel(Model):
 
 
 class RandomForestModel(_TreeModel):
+    """Random forest, built from the ``rf_*`` keys of the sweep."""
+
     @classmethod
     def from_sweep(cls, cfg, seed):
+        """Build the forest from the ``rf_*`` keys."""
         return cls(
             RandomForestClassifier(
                 n_estimators=cfg.rf_n_estimators,
@@ -64,8 +68,11 @@ class RandomForestModel(_TreeModel):
 
 
 class LightGBMModel(_TreeModel):
+    """Gradient-boosted trees, built from the ``lgb_*`` keys and the shared ones."""
+
     @classmethod
     def from_sweep(cls, cfg, seed):
+        """Build the booster; ``scale_pos_weight`` is left to :meth:`fit`."""
         # scale_pos_weight is set from the training split, so it is filled in by
         # fit() rather than here.
         return cls(
@@ -84,6 +91,7 @@ class LightGBMModel(_TreeModel):
         )
 
     def fit(self, X_train, y_train, X_val=None, y_val=None):
+        """Fit, weighting the positive class by the training split's imbalance."""
         # Class imbalance is corrected by the negative-to-positive ratio of the
         # training split (80/20 -> 4), the LightGBM equivalent of the
         # class_weight="balanced" the other estimators take at construction.
@@ -93,8 +101,11 @@ class LightGBMModel(_TreeModel):
 
 
 class DecisionTreeModel(_TreeModel):
+    """A single tree, built from the ``dt_*`` keys of the sweep."""
+
     @classmethod
     def from_sweep(cls, cfg, seed):
+        """Build the tree from the ``dt_*`` keys."""
         return cls(
             DecisionTreeClassifier(
                 max_depth=cfg.dt_max_depth,
@@ -109,10 +120,13 @@ class DecisionTreeModel(_TreeModel):
 
 
 class LogisticRegressionModel(Model):
+    """Logistic regression on the scaled matrix, from the ``lr_*`` keys."""
+
     wants_scaled = True
 
     @classmethod
     def from_sweep(cls, cfg, seed):
+        """Build the regression from the ``lr_*`` keys."""
         return cls(
             LogisticRegression(
                 C=cfg.lr_C,
@@ -126,18 +140,22 @@ class LogisticRegressionModel(Model):
         )
 
     def explain(self, split, shap_cfg):
+        """Explain with LinearExplainer, which is exact for this family."""
         sample = split["X_test_scaled"][:N_EXPLAIN_CHEAP]
         explainer = shap.LinearExplainer(self.model, split["X_train_scaled"])
         return explainer.shap_values(sample), sample
 
 
 class SVMModel(Model):
+    """RBF-kernel support vector machine, from the ``svm_*`` keys."""
+
     # An RBF kernel compares distances, so unscaled features would let the
     # widest-range column dominate.
     wants_scaled = True
 
     @classmethod
     def from_sweep(cls, cfg, seed):
+        """Build the machine from the ``svm_*`` keys, with probabilities on."""
         return cls(
             SVC(
                 C=cfg.svm_C,
@@ -152,6 +170,7 @@ class SVMModel(Model):
         )
 
     def score(self, X):
+        """Decide at p >= 0.5, like every other family."""
         # SVC.predict() takes the sign of the decision function while
         # predict_proba() goes through Platt scaling, and the two disagree.
         # Every other model here decides at p >= 0.5, and the comparison table
@@ -159,6 +178,7 @@ class SVMModel(Model):
         return self.score_by_threshold(X)
 
     def explain(self, split, shap_cfg):
+        """Explain with PermutationExplainer, on the budget from config.yaml."""
         # No TreeExplainer, no LinearExplainer (an RBF kernel is not linear),
         # and KernelExplainer is intractable against thousands of support
         # vectors. PermutationExplainer needs only 2*n_features+1 evaluations

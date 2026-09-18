@@ -62,7 +62,8 @@ release the following:
 | `data/raw/example_panel.csv` | **Example panel with non-real data.** Synthetic records that reproduce the schema, column types, value ranges, and the panel (multi-row-per-firm) structure of the original input, so that the feature/target-engineering code can be executed end to end. The values do **not** correspond to any real company. | Released |
 | `data/processed/dataset_window.csv` | **Final bias-controlled dataset** (`window`) used in all experiments. | Released |
 | `data/processed/dataset_nowindow.csv` | **Final dataset with look-ahead bias** (`nowindow`) used in all experiments. | Released |
-| `data/raw/panel.csv.gz` | Original PitchBook-derived panel. | **Not released** |
+| `data/raw/pitchbook/` | The PitchBook extraction the panel is built from. | **Not released** |
+| `data/interim/panel.csv.gz` | The panel `build_panel_light.ipynb` produces from that extraction. | **Not released** |
 | `data/raw/QS_World_Rankings.csv` | QS World University Rankings, used to flag top-tier institutes. | See QS terms |
 
 The two released **final datasets** are the exact inputs to every model and
@@ -82,16 +83,13 @@ demonstrate and re-run the upstream feature-engineering pipeline.
 │   │   ├── example_panel.csv     # Synthetic example panel (released)
 │   │   ├── QS_World_Rankings.csv # University ranking, to flag top-tier institutes
 │   │   └── pitchbook/            # PitchBook extraction (not released)
-│   ├── reference/                # R intermediates, ground truth for the port (not released)
-│   ├── interim/                  # Per-stage outputs of the panel pipeline
+│   ├── interim/                  # Per-stage outputs of the panel pipeline, and the panel itself
 │   └── processed/
 │       ├── dataset_window.csv    # Final bias-controlled dataset (released)
 │       └── dataset_nowindow.csv  # Final look-ahead-biased dataset (released)
 ├── docs/                         # Design specs and implementation plans
 ├── scripts/
-│   ├── build_datasets.py         # Rebuilds the two processed datasets from the panel
-│   ├── check_extraction.py       # Checks a candidate extraction against the reference
-│   └── derive_europe_mapping.py  # Recovers the country->continent verdict the R used
+│   └── build_datasets.py         # Rebuilds the two processed datasets from the panel
 ├── src/
 │   ├── preprocessing.py          # Feature & target engineering, time window, imputation
 │   ├── encoding.py               # Frequency encoding, fitted per split (no leakage)
@@ -102,101 +100,72 @@ demonstrate and re-run the upstream feature-engineering pipeline.
 │   │   ├── sklearn_models.py     # RF, LightGBM, Decision Tree, LR, SVM
 │   │   ├── mlp.py                # The network and its training loop
 │   │   └── tabpfn.py             # TabPFN v2, run locally
-│   ├── panel/                    # What build_panel.ipynb calls; the logic is in the notebook
-│   │   ├── config.py             # Paths and the bug flags, all defaulting to R behaviour
-│   │   ├── rutils.py             # R/dplyr semantics that polars does not share
-│   │   ├── io.py                 # Schema-explicit readers, row-count guards
-│   │   ├── expansions.py         # The two memory-heavy expansions
-│   │   └── validate.py           # Per-column verification against the references
-│   └── RCode/                    # Original R scripts, kept for reference (not released)
-├── tests/                        # pytest suite for src/
-├── build_panel.ipynb             # Panel construction, stage by stage, documented
-├── notebook.ipynb                # Main reproducible pipeline (end to end)
+│   └── panel/                    # What build_panel_light.ipynb calls; the logic is in the notebook
+│       ├── config.py             # The pipeline's paths
+│       ├── expressions.py        # Expressions with the pipeline's missing-value rules
+│       ├── io.py                 # Schema-explicit readers, no type inference
+│       └── expansions.py         # The two memory-heavy expansions
+├── tests/                        # pytest suite: unit tests plus the notebook-to-notebook contract
+├── .github/workflows/tests.yml   # Lint, format check and tests on every push
+├── build_panel_light.ipynb       # Panel construction, phase by phase, documented
+├── notebook.ipynb                # Experiments on the two processed datasets (end to end)
 ├── pyproject.toml                # Dependencies, ruff configuration
 ├── uv.lock                       # Exact resolution, committed
 ├── .env                          # Template for the environment variables
 └── README.md
 ```
 
-`src/RCode/` holds the original R scripts the pipeline was translated from and
-`data/reference/` the intermediates its output is checked against; neither is
-redistributable, so both are absent from a fresh clone.
+Every assumption the pipeline makes, what it was measured to cost and which
+alternatives were discarded is recorded in `docs/panel_revisione_stato.md`, phase
+by phase. That document is the history of the pipeline; the notebook is what it
+does today.
 
 ## Panel construction
 
-**`build_panel.ipynb` is the pipeline.** Not a wrapper around it: the logic
-lives in the notebook, in roughly forty blocks of a dozen lines each, one per
-logical step, and each block carries the explanation of what it does, which R
-lines it translates, which trap a plausible translation would fall into, and
-what to look at in the result. The repository backs a paper, so every step has
-to be readable and checkable, not just runnable.
+**`build_panel_light.ipynb` is the pipeline.** Not a wrapper around it: the
+logic lives in the notebook, in forty-odd blocks of a dozen lines each, one per
+logical step, and each block carries the explanation of what it does, which
+assumption it makes, which trap a plausible translation would fall into, and what
+to look at in the result. The repository backs a paper, so every step has to be
+readable and checkable, not just runnable.
 
 ```bash
-uv run python scripts/check_extraction.py data/raw/pitchbook   # right vintage?
-# then run build_panel.ipynb top to bottom: ~8 minutes
+# run build_panel_light.ipynb top to bottom: ~3 minutes, peak 2.8 GB
 ```
 
-Only five things stay in `src/panel/`, and each for a stated reason: the R
-semantics polars does not share (`rutils.py`), the schema-explicit readers
-(`io.py`), the verification engine (`validate.py`), the configuration
+Three switches at the top of the notebook — `TEMPORIZZA_PERSONE`,
+`TEMPORIZZA_INVESTITORI`, `TEMPORIZZA_COMPETITOR` — decide, for one group of
+attributes each, between the value of the row's own year and the snapshot taken
+at extraction time. They are what makes the with- and without-look-ahead panels
+comparable: same pipeline, same features, only what was knowable at the time
+changes.
+
+Only four things stay in `src/panel/`, and each for a stated reason: the
+expressions whose missing-value behaviour the pipeline depends on
+(`expressions.py`), the schema-explicit readers (`io.py`), the paths
 (`config.py`), and the two expansions that peak near this machine's memory
 ceiling and whose substance is one join (`expansions.py`).
 
 Each phase writes its parquet to `data/interim/` and the next reads it, so
 re-running one phase does not force the others and the kernel can be restarted
-at any point without losing work. The verification reports run in subprocesses:
-reading a reference CSV as text costs several gigabytes, and the pipeline
-already peaks around 5.7 GB of the 7 available.
+at any point without losing work.
 
-Nothing writes to `data/raw/` or `data/reference/`. The finished panel lands in
-`data/interim/panel.csv.gz`; `data/raw/panel.csv.gz` is the reference it is
-compared against and stays untouched.
+Nothing writes to `data/raw/`. The finished panel lands in
+`data/interim/panel.parquet` and `data/interim/panel.csv.gz`, which is what
+`config/config.yaml` hands to `scripts/build_datasets.py`.
 
 ### Verification
 
-Each phase is checked twice. Against **the file the R produced**, column by
-column and aligned by key — six such checkpoints, run from the notebook or with
-`uv run python -m src.panel.validate --checkpoint C`. And against a **frozen
-baseline** of the pre-notebook outputs, with
-`--baseline db_master_2`: that one is the stronger of the two, because a
-checkpoint declares some columns and never compares them while the baseline
-excuses nothing.
+The last cell of the notebook checks the panel's **invariants**: rows, companies,
+columns, how many rows carry team data and a growth stage, plus two checks of
+substance — no year precedes a company's founding, and the oldest cohort must
+carry team data — and that the column list matches `data/raw/example_panel.csv`.
+The expected numbers belong to this extraction, so a deviation means "something
+changed, understand what before using the result", not necessarily "there is a
+bug".
 
-| checkpoint | stage | reference | rows | result |
-|---|---|---|---|---|
-| A | 2 | `db3.csv` | 534,851 | 52/52 columns identical |
-| B | 3 | `db_master_1.csv` | 116,920 | 34/34 identical |
-| C | 5 | `db_master_2.csv` | 1,001,625 | 107/107 identical |
-| D | 5 | `db_selected.csv` | 1,001,625 | 89/89 identical |
-| E | 6 | `db_master_panel.csv.gz` | 882,324 | 112/113 identical |
-| F | 7 | `data/raw/panel.csv.gz` | 882,324 | 107/114 identical |
-
-Three groups of columns are declared rather than reproduced, and every run
-prints them:
-
-- **The six `TotalRaised_Est*` columns are not produced.** The R filled missing
-  deal amounts with a `randomForest` fitted with no seed, across all years, on
-  the whole dataset before any split, using the deal type — which determines the
-  target — as a predictor. `src/panel/stage4_deals.py` carries a comment at the
-  exact line naming the seven columns it created; missing amounts are now left
-  missing for the imputation that already runs before training.
-- **`StageBlock` at E and F.** Its value in those files matches neither a
-  recomputation on `GrowthStage` nor one on the grouped stage nor
-  `db_selected`'s own. Nothing downstream reads it.
-- **The six competitor columns at F.** They were computed from a different
-  download of `CompanySimilarRelation.csv`: checkpoint B reproduces every
-  competitor aggregate in `db_master_1.csv` exactly from the extraction we have,
-  yet 655,869 rows over 84,138 companies carry the same competitor count as the
-  published panel and a different mean similarity, in both directions.
-
-### Reproducing the R's defects
-
-The R has ten known defects. All are reproduced by default, each behind a
-`fix_*` flag in `PanelConfig` that defaults to `False`, where `False` means "do
-what the R did". `docs/superpowers/specs/` holds the register with the measured
-impact of each. The largest is B1: the team panel and the deal table cut at
-`YearFounded > 2000` while the rest of the pipeline cuts at `> 1999`, so the
-entire 2000 founding cohort reaches the models with no team data at all.
+The logic itself is covered by the test suite rather than by a comparison
+against a stored output: see **Development** below.
 
 ## Installation
 
@@ -229,12 +198,30 @@ uv run ruff format .     # format
 uv run jupyter lab       # open notebook.ipynb
 ```
 
+The same three commands run on every push and pull request, in
+`.github/workflows/tests.yml`.
+
 `tests/` covers the feature and target engineering (`src/preprocessing.py`), the
 per-split frequency encoding (`src/encoding.py`), the split/imputation/scaling
 cache and the SHAP comparison and Wilcoxon machinery (`src/utils.py`), the seven
-model families (`src/models/`), and the panel pipeline configuration
-(`src/panel/`). The model tests run without W&B, without the datasets and
-without a GPU.
+model families (`src/models/`), and the panel pipeline's primitives, readers and
+expansions (`src/panel/`).
+
+**No test reads the data.** Every one of them builds the handful of rows it
+needs, so what fails is the logic, not an extraction: the missing-value
+behaviour the pipeline depends on (a null that invalidates a cumulative sum, a
+sequence that stays inclusive), the rule that keeps a person out of the team
+years before they arrive, the target read at a fixed horizon and never later, the
+missing-value policy, and the anti-leakage invariant that nothing may be decided
+by looking at the whole dataset before the split. The model tests run without
+W&B, without the datasets and without a GPU.
+
+`tests/test_integration.py` checks the contract **between the two notebooks**:
+every column `src/preprocessing.py` selects has to be one that
+`build_panel_light.ipynb` writes, the two must agree on the sample threshold, and
+`config/config.yaml` must point the dataset builder at the panel this pipeline
+actually produces. It reads the notebooks' source, not their output, so it needs
+neither the extraction nor a run.
 
 ### Adding a model family
 
@@ -245,11 +232,6 @@ and which SHAP explainer stays tractable on it (`explain`) — then register it 
 `src/models/__init__.py` and add its hyperparameters to `sweep_settings` in
 `config/config.yaml` under a `<family>_` prefix. `src/training.py` does not
 change.
-
-`tests/test_preprocessing.py` is currently skipped at module level: it targets a
-function that was removed when category collapsing moved per split, and it is
-re-pointed together with the panel pipeline port. The skip message says so, and
-the suite reports it on every run.
 
 Lint and format rules live in `pyproject.toml` (`ruff`, line length 100).
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import matplotlib.pyplot as plt
 import numpy as np
 import shap
+import wandb
 from sklearn.metrics import (
     accuracy_score,
     auc,
@@ -22,7 +23,6 @@ from sklearn.metrics import (
     roc_curve,
 )
 
-import wandb
 from src.models import build
 from src.utils import get_split, set_seed
 

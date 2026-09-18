@@ -1,6 +1,6 @@
 
 paths:
-  raw_dataset: "data/raw/panel.csv.gz"
+  raw_dataset: "data/interim/panel.csv.gz"
   raw_university_ranking: "data/raw/QS_World_Rankings.csv"
   dataset_window: "data/processed/dataset_window.csv"
   dataset_nowindow: "data/processed/dataset_nowindow.csv"

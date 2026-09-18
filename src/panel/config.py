@@ -1,9 +1,8 @@
-"""Configuration for the panel pipeline.
+"""Paths of the panel pipeline.
 
-Every ``fix_*`` flag defaults to ``False``, and ``False`` means "reproduce
-the R behaviour, bug included". Fixing a defect is always opt-in: see
-section 6 of the design spec for the registry and the measured impact of
-each one.
+One frozen dataclass, instantiated once by ``build_panel_light.ipynb``. There is
+no seed and no imputation setting: the pipeline is deterministic, and no missing
+value is filled by a fitted model.
 """
 
 from __future__ import annotations
@@ -11,60 +10,31 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-#: Every bug flag, in the order of the spec's registry (B1..B10).
-BUG_FLAGS: tuple[str, ...] = (
-    "fix_founding_year_threshold",  # B1
-    "fix_is_other_label",  # B2
-    "fix_stageblock_na",  # B3
-    "fix_same_country_narm",  # B4
-    "fix_permanenza_media_per_company",  # B5
-    "fix_negative_delta",  # B6
-    "fix_institute_na_literal",  # B7
-    "fix_europe_asymmetry",  # B8
-    "fix_dup_coalesce",  # B9
-    "fix_is_out_na",  # B10
-)
-
 
 @dataclass(frozen=True)
 class PanelConfig:
-    """Paths and bug flags for one pipeline run.
+    """Where the pipeline reads from and writes to.
 
-    There is no imputation setting and no seed: the RandomForest imputation of
-    ``TotalInvestedCapital`` is not ported (see ``stage4_deals``), so the whole
-    pipeline is deterministic.
+    :param raw_dir: Directory of the raw PitchBook CSVs.
+    :param interim_dir: Directory of the per-stage parquet outputs.
     """
 
     raw_dir: Path = Path("data/raw/pitchbook")
-    ref_dir: Path = Path("data/reference")
     interim_dir: Path = Path("data/interim")
 
-    ignore_failed_checks: bool = False
-    n_examples: int = 10
-    rtol: float = 1e-9
-
-    fix_founding_year_threshold: bool = False
-    fix_is_other_label: bool = False
-    fix_stageblock_na: bool = False
-    fix_same_country_narm: bool = False
-    fix_permanenza_media_per_company: bool = False
-    fix_negative_delta: bool = False
-    fix_institute_na_literal: bool = False
-    fix_europe_asymmetry: bool = False
-    fix_dup_coalesce: bool = False
-    fix_is_out_na: bool = False
-
-    def interim(self, name: str) -> Path:
-        """Path of an interim parquet, creating the directory if needed."""
-        self.interim_dir.mkdir(parents=True, exist_ok=True)
-        return self.interim_dir / name
-
-    def reference(self, name: str) -> Path:
-        return self.ref_dir / name
-
     def raw(self, name: str) -> Path:
+        """Path of a raw CSV.
+
+        :param name: File name, extension included.
+        :return: Path inside :attr:`raw_dir`.
+        """
         return self.raw_dir / name
 
-    def active_fixes(self) -> tuple[str, ...]:
-        """Flags currently enabled — printed by the notebook on every run."""
-        return tuple(f for f in BUG_FLAGS if getattr(self, f))
+    def interim(self, name: str) -> Path:
+        """Path of an interim parquet, creating the directory if needed.
+
+        :param name: File name, extension included.
+        :return: Path inside :attr:`interim_dir`.
+        """
+        self.interim_dir.mkdir(parents=True, exist_ok=True)
+        return self.interim_dir / name
