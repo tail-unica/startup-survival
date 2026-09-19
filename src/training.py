@@ -7,6 +7,8 @@ the paper's tables and the W&B dashboards read.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import matplotlib.pyplot as plt
 import numpy as np
 import shap
@@ -23,6 +25,7 @@ from sklearn.metrics import (
     roc_curve,
 )
 
+from src.experiments import grid_runs
 from src.models import build
 from src.utils import get_split, set_seed
 
@@ -60,6 +63,155 @@ def _pr_figure(labels, probs, model_type):
     return fig, ap
 
 
+def run_once(
+    params,
+    tag,
+    X,
+    y,
+    config,
+    split_kwargs,
+    metrics_store,
+    shap_store,
+    *,
+    use_wandb=True,
+):
+    """Train, score and explain one model on one seed.
+
+    It is the body of a sweep run, and it is the same whether a sweep drives it or
+    the command line does. With ``use_wandb`` off nothing is sent anywhere: the
+    metrics are printed and kept in the stores, which is what the notebook and the
+    command line read to build their tables.
+
+    :param params: The parameters of this run, which have to carry ``model_type``
+        and ``seed`` and the hyperparameters of that family.
+    :param tag: The experiment the run belongs to; keys both stores.
+    :param X: Features of the selected experiment.
+    :param y: Its target.
+    :param config: The parsed ``config.yaml``.
+    :param split_kwargs: Passed through to ``get_split``.
+    :param metrics_store: Dict the run appends its metrics to, keyed by
+        ``(model_type, tag)``.
+    :param shap_store: The same, for the SHAP values of the explained seed.
+    :param use_wandb: Whether to log to Weights & Biases.
+    :return: The metrics of the run.
+    """
+    model_type = params.model_type if hasattr(params, "model_type") else params["model_type"]
+    wandb_config = params if hasattr(params, "model_type") else SimpleNamespace(**params)
+
+    # Each run draws its own seed. It drives BOTH the split and the model's
+    # randomness, so the five runs of a model are five independent replications,
+    # not five reruns of one partition — which is what makes the mean +- std in
+    # the result tables able to separate a real gap between models from
+    # split-to-split noise.
+    seed = wandb_config.seed
+    split = get_split(X, y, seed, tag=tag, **split_kwargs)
+
+    # Reproducibility: seed Python, NumPy, PyTorch (CPU+CUDA), cuDNN. The
+    # estimators also get a random_state of their own.
+    set_seed(seed)
+
+    model = build(model_type, wandb_config, seed)
+    X_train, X_val, X_test = model.matrices(split)
+    y_train, y_val, y_test = split["y_train"], split["y_val"], split["y_test"]
+
+    model.fit(X_train, y_train, X_val, y_val)
+
+    _, preds_train = model.score(X_train)
+    _, preds_val = model.score(X_val)
+    probs_test, preds_test = model.score(X_test)
+
+    metrics = {
+        "accuracy_train": accuracy_score(y_train, preds_train),
+        "F1_train": f1_score(y_train, preds_train, zero_division=0),
+        "F1_val": f1_score(y_val, preds_val, zero_division=0),
+        "accuracy": accuracy_score(y_test, preds_test),
+        "F1": f1_score(y_test, preds_test, zero_division=0),
+        "precision": precision_score(y_test, preds_test, zero_division=0),
+        "recall": recall_score(y_test, preds_test, zero_division=0),
+    }
+    fig_roc, roc_auc = _roc_figure(y_test, probs_test, model_type)
+    fig_pr, ap = _pr_figure(y_test, probs_test, model_type)
+    metrics["AUC"] = roc_auc
+    metrics["average_precision"] = ap
+
+    if use_wandb:
+        wandb.log({**metrics, "roc_curve": wandb.Image(fig_roc), "pr_curve": wandb.Image(fig_pr)})
+        wandb.sklearn.plot_confusion_matrix(y_test, preds_test, ["Neg", "Pos"])
+    plt.close(fig_roc)
+    plt.close(fig_pr)
+
+    print(f"{model_type} seed {seed} | AUC: {roc_auc:.3f} | AP: {ap:.3f}")
+    print(classification_report(y_test, preds_test))
+
+    # Persist the metrics for the later cross-experiment comparison, in parallel
+    # with the SHAP store.
+    if tag is not None:
+        metrics_store.setdefault((model_type, tag), []).append({"seed": seed, **metrics})
+
+    # SHAP is computed on the first evaluation seed only. Those tables answer a
+    # different question from the mean +- std ones: which features move when the
+    # window is removed, not how much the metrics vary across splits. The Wilcoxon
+    # table also pairs rows within one explained sample, so pooling five seeds
+    # would change what the test measures. It additionally keeps TabPFN to one
+    # SHAP pass per experiment instead of five, which its inference cost notices.
+    if seed == config["shap_seed"]:
+        # Re-seed before SHAP so that the stochastic estimators give the same
+        # values across runs.
+        set_seed(seed)
+        shap_cfg = config["shap_permutation"].get(model_type, {})
+        shap_values, explainer_sample = model.explain(split, shap_cfg)
+
+        plt.figure(figsize=(10, 6))
+        shap.summary_plot(
+            shap_values, explainer_sample, feature_names=X.columns.tolist(), show=False
+        )
+        if use_wandb:
+            wandb.log({"shap_summary_plot": wandb.Image(plt)})
+            plt.close()
+        else:
+            plt.show()
+
+        if tag is not None:
+            shap_store[(model_type, tag)] = {
+                "shap_values": np.asarray(shap_values),
+                "explainer_sample": explainer_sample,
+            }
+    return metrics
+
+
+def run_grid(tag, X, y, config, split_kwargs, metrics_store, shap_store):
+    """Run every combination the sweep declares, without a sweep.
+
+    This is the route the command line takes with Weights & Biases off, and the
+    one a notebook can take to see the numbers without an account: the runs are
+    the same, only nothing is logged remotely.
+
+    :param tag: The experiment the runs belong to.
+    :param X: Features of the selected experiment.
+    :param y: Its target.
+    :param config: The parsed ``config.yaml``.
+    :param split_kwargs: Passed through to ``get_split``.
+    :param metrics_store: Dict the runs append their metrics to.
+    :param shap_store: The same, for the SHAP values.
+    :return: How many runs were executed.
+    """
+    runs = grid_runs(config)
+    for i, params in enumerate(runs, start=1):
+        print(f"\n── run {i}/{len(runs)} ─────────────────────────────────────────")
+        run_once(
+            params,
+            tag,
+            X,
+            y,
+            config,
+            split_kwargs,
+            metrics_store,
+            shap_store,
+            use_wandb=False,
+        )
+    return len(runs)
+
+
 def make_train(tag, X, y, config, split_kwargs, metrics_store, shap_store):
     """Build the function ``wandb.agent`` calls once per sweep run.
 
@@ -78,96 +230,16 @@ def make_train(tag, X, y, config, split_kwargs, metrics_store, shap_store):
 
     def train():
         with wandb.init():
-            wandb_config = wandb.config
-            model_type = wandb_config.model_type
-
-            # Each run draws its own seed from the sweep. It drives BOTH the
-            # split and the model's randomness, so the five runs of a model are
-            # five independent replications, not five reruns of one partition —
-            # which is what makes the mean +- std in the result tables able to
-            # separate a real gap between models from split-to-split noise.
-            seed = wandb_config.seed
-            split = get_split(X, y, seed, tag=tag, **split_kwargs)
-
-            # Reproducibility: seed Python, NumPy, PyTorch (CPU+CUDA), cuDNN.
-            # The estimators also get a random_state of their own.
-            set_seed(seed)
-
-            model = build(model_type, wandb_config, seed)
-            X_train, X_val, X_test = model.matrices(split)
-            y_train, y_val, y_test = split["y_train"], split["y_val"], split["y_test"]
-
-            model.fit(X_train, y_train, X_val, y_val)
-
-            _, preds_train = model.score(X_train)
-            _, preds_val = model.score(X_val)
-            probs_test, preds_test = model.score(X_test)
-
-            acc = accuracy_score(y_test, preds_test)
-            acc_train = accuracy_score(y_train, preds_train)
-            precision = precision_score(y_test, preds_test, zero_division=0)
-            recall = recall_score(y_test, preds_test, zero_division=0)
-            f1 = f1_score(y_test, preds_test, zero_division=0)
-            f1_train = f1_score(y_train, preds_train, zero_division=0)
-            f1_val = f1_score(y_val, preds_val, zero_division=0)
-
-            fig_roc, roc_auc = _roc_figure(y_test, probs_test, model_type)
-            fig_pr, ap = _pr_figure(y_test, probs_test, model_type)
-
-            metrics = {
-                "accuracy_train": acc_train,
-                "F1_train": f1_train,
-                "F1_val": f1_val,
-                "accuracy": acc,
-                "F1": f1,
-                "precision": precision,
-                "recall": recall,
-                "AUC": roc_auc,
-                "average_precision": ap,
-            }
-
-            wandb.log(
-                {**metrics, "roc_curve": wandb.Image(fig_roc), "pr_curve": wandb.Image(fig_pr)}
+            run_once(
+                wandb.config,
+                tag,
+                X,
+                y,
+                config,
+                split_kwargs,
+                metrics_store,
+                shap_store,
+                use_wandb=True,
             )
-            plt.close(fig_roc)
-            plt.close(fig_pr)
-
-            print(f"AUC: {roc_auc:.3f} | AP: {ap:.3f}")
-            print(classification_report(y_test, preds_test))
-
-            wandb.sklearn.plot_confusion_matrix(y_test, preds_test, ["Neg", "Pos"])
-
-            # Persist metrics for later cross-experiment comparison (parallel to
-            # shap_store).
-            if tag is not None:
-                metrics_store.setdefault((model_type, tag), []).append({"seed": seed, **metrics})
-
-            # SHAP is computed on the first evaluation seed only. These tables
-            # answer a different question from the mean +- std ones: which
-            # features move when the window is removed, not how much the metrics
-            # vary across splits. compute_wilcoxon_table also pairs rows within
-            # one explained sample, so pooling five seeds would change what the
-            # test measures. It additionally keeps TabPFN to one SHAP pass per
-            # experiment instead of five, which its inference cost notices.
-            if seed == config["shap_seed"]:
-                # Re-seed before SHAP so that the stochastic estimators
-                # (shap.sample, KernelExplainer) give the same values across runs.
-                set_seed(seed)
-
-                shap_cfg = config["shap_permutation"].get(model_type, {})
-                shap_values, explainer_sample = model.explain(split, shap_cfg)
-
-                plt.figure(figsize=(10, 6))
-                shap.summary_plot(
-                    shap_values, explainer_sample, feature_names=X.columns.tolist(), show=False
-                )
-                wandb.log({"shap_summary_plot": wandb.Image(plt)})
-                plt.close()
-
-                if tag is not None:
-                    shap_store[(model_type, tag)] = {
-                        "shap_values": np.asarray(shap_values),
-                        "explainer_sample": explainer_sample,
-                    }
 
     return train

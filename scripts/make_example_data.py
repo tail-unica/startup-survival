@@ -6,14 +6,16 @@ a cast of eight companies chosen so that every branch of the panel construction
 fires at least once. Nothing here describes a real company or person.
 
 Each company's story is written above its rows, and that is the point: reading
-this file next to ``build_panel.ipynb`` shows what happens to a firm as the
-phases go by.
+this file next to ``1_panel_construction.ipynb`` shows what happens to a firm as
+the phases go by.
 
     python scripts/make_example_data.py
 
-The output lands in ``data/example/pitchbook/``, which ``build_panel.ipynb``
-reads when ``ESEMPIO = True``. The rows are laid out one record per line and kept
-out of the formatter's hands on purpose: they are meant to be read as a table.
+The output lands in ``data/example/pitchbook/``, which the pipeline reads with
+``--example`` on the command line, or with ``EXAMPLE = True`` in the notebook.
+
+The rows are laid out one record per line and kept out of the formatter's hands
+on purpose: they are meant to be read as a table.
 """
 
 import csv

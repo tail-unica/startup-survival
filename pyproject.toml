@@ -32,9 +32,11 @@ dependencies = [
 dev = [
     "pytest>=9.1.1",
     "ruff>=0.15.16",
+    # The three notebooks: ipykernel is the kernel they run on, jupyterlab the
+    # server `uv run jupyter lab` starts. An editor that speaks to the .venv
+    # kernel needs only the former.
     "ipykernel>=7.1.0",
-    # tests/test_example_pipeline.py runs build_panel.ipynb over the synthetic
-    # extraction, which is how the pipeline itself is tested end to end.
+    "jupyterlab>=4.4.0",
     "nbconvert>=7.16.0",
 ]
 

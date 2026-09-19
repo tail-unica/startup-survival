@@ -10,6 +10,18 @@ paths:
   dataset_nowindow: "data/processed/dataset_nowindow.csv"
 
 time_window: 7
+
+# Missing-value policy of the processed datasets.
+#
+# A feature missing on more than `missing_threshold` of the rows is dropped: past
+# that point the imputation would be inventing the column rather than completing
+# it. The budget goes with it: with the threshold at 0.5 the four sparsest
+# features stay in, so a row missing exactly those is normal rather than
+# pathological, and a budget of 4 would drop a fifth of the firms to keep them.
+preprocessing:
+  missing_threshold: 0.5
+  max_missing_per_row: 6
+
 first_year: 2000
 last_year: 2024
 test_size: 0.4
@@ -247,3 +259,216 @@ sweep_settings:
     # TabPFN — 8 is the default ensemble size.
     tabpfn_n_estimators:
       values: [8]
+# ── Panel construction ──────────────────────────────────────────────────────
+# The domain rules of the panel: what counts as a founder, how a degree is
+# ranked, which field of study a subject belongs to. They live here because they
+# are research choices, not implementation details, and because every one of them
+# is a decision a reader of the paper may want to inspect or change.
+panel:
+  # Degree levels, in priority order: the first pattern that matches wins, so the
+  # order is part of the rule. "MD" appears in the doctorate pattern and "Master"
+  # in the next one, which is why an MD never reaches a master's.
+  degree_rules:
+    - ["PhD|Doctor|MD|PsyD|DPhil|DC|DDS|DPT|OD|JD", "PhD/Doctorate"]
+    - ["MBA|LLM|Master|MSc|MPhil|MPA|MFA|MEng|MAcc|Graduate", "Master's"]
+    - ["Bachelor|BSc|BEng|Laurea|BS|BFA|BCom|degree|Business Program|Undergrad", "Bachelor's"]
+    - ["Certified|Certificat|A Levels|A-Levels|Diplom|DEA|DESS|Dipl\\.-Ing|Executive Development Program|Executive Education|Executive Education program|Executive Program|First Legal State Exam|Legal Practice Course|Vordiplom", "Diploma/Certificate"]
+
+  # The ranking the levels are scored on: the index of the highest level reached,
+  # one-based. The last branch catches a missing degree too, so the score is never
+  # null: whoever declares nothing scores one, not nothing.
+  degree_hierarchy: ["Other", "Diploma/Certificate", "Bachelor's", "Master's", "PhD/Doctorate"]
+
+  # Fields of study, same short-circuit rule as the degrees.
+  field_rules:
+    - ["business|management|bank|invest|financ|marketing|real estate|account|Entrepreneur|commerce|econom|actuarial science|private equity", "Economics"]
+    - ["engineer|civil|electric|mechanic|electronic|Operations Research|material|logistic|Engeneering", "Engineering"]
+    - ["statistic|machine learning|Natural Language|robot|technolog|comput|data|informatic|Artificial Intelligence|information science|information systems|data science|softwar", "IT and Computer Science"]
+    - ["law|tax|justice|forensic|legal|jurisprudence|intellectual property", "Law"]
+    - ["medic|nursing|pharmac|health|immunolog|neuroscien|genetic|physio", "Health and Medicine"]
+    - ["social science|strateg|sociology|psychology|anthropology|international relations|polit|government|geography|polic|international|foreign service|social studies|criminology|cognitive science|public affairs|urban planning|social work|human resource|leadership|foreign", "Social Sciences"]
+    - ["natural|biolog|chemistry|physic|environmental science|math|geology|life science|zoology|agriculture", "Natural Sciences"]
+    - ["humanit|literature|histor|philosoph|language|linguist|english|spanis|american|religion|classic|french|theolog|cultural studies|europe|arts|design|music|architecture|journalism|media|public relations|advertising|communic|education|early childhood|special education|administration", "Humanities and Arts"]
+
+  # One panel flag per field of study.
+  field_flags:
+    Is_Eco: "Economics"
+    Is_Eng: "Engineering"
+    Is_Med: "Health and Medicine"
+    Is_Hum: "Humanities and Arts"
+    Is_IT: "IT and Computer Science"
+    Is_Law: "Law"
+    Is_NS: "Natural Sciences"
+    Is_SS: "Social Sciences"
+
+  # A founder is recognised from the job title. The pattern covers the misspellings
+  # the source carries (Co-Founde, Co-Founderf) without catching "Foundation" or
+  # "Foundry", and the assistant phrase is removed first: a founder's associate
+  # assists a founder and is not one.
+  founder_pattern: "founde|founding"
+  founder_assistant_pattern: "founders?'?s?'? associate"
+
+  # A chief executive, as the title spells it.
+  ceo_pattern: "\\bceo\\b|chief executive"
+
+  # Degrees read off the person's name. The last two are case-sensitive and match
+  # literally: in lower case they would catch fragments of common names.
+  name_degree_patterns:
+    Name_PhD: "Ph\\.?D"
+    Name_JD: " JD"
+    Name_MD: " MD"
+
+  # Investor types collapsed into seven categories. Anything not listed here,
+  # including a missing type, falls into "Other" and raises no flag.
+  investor_categories:
+    "Venture Capital": "Venture Capital"
+    "Corporate Venture Capital": "Venture Capital"
+    "Growth/Expansion": "Venture Capital"
+    "Not-For-Profit Venture Capital": "Venture Capital"
+    "VC-Backed Company": "Venture Capital"
+    "Angel (individual)": "Angel"
+    "Angel Group": "Angel"
+    "Accelerator/Incubator": "Accelerator"
+    "Corporation": "Corporate"
+    "Corporate Development": "Corporate"
+    "PE/Buyout": "Private Equity"
+    "Family Office": "Private Equity"
+    "PE-Backed Company": "Private Equity"
+    "Holding Company": "Private Equity"
+    "Merchant Banking Firm": "Private Equity"
+    "Mezzanine": "Private Equity"
+    "Secondary Buyer": "Private Equity"
+    "Other Private Equity": "Private Equity"
+    "Special Purpose Acquisition Company (SPAC)": "Private Equity"
+    "Fundless Sponsor": "Private Equity"
+    "Government": "Public Investor"
+    "University": "Public Investor"
+    "Sovereign Wealth Fund": "Public Investor"
+    "Mutual Fund": "Public Investor"
+
+  # One flag per category, on the new investors of a round and on its leads.
+  # Angel and Accelerator are not panel columns of their own: they are OR-ed with
+  # the flags of the deal type, so that a round from an accelerator counts even
+  # when the deal type does not say so.
+  investor_flags:
+    Angel: "Angel"
+    Corporate: "Corporate"
+    VentureCapital: "Venture Capital"
+    Accelerator: "Accelerator"
+    PrivateEquity: "Private Equity"
+    PublicInvestor: "Public Investor"
+
+  # The deal types each panel flag covers. The first nine are not panel columns:
+  # they are the cascade that produces the growth stage, that is the target.
+  deal_flags:
+    Is_Preseed: ["Accelerator/Incubator", "Angel (individual)", "Grant", "Spin-Off", "Equity Crowdfunding", "Product Crowdfunding", "Capitalization"]
+    Is_Seed: ["Seed Round"]
+    Is_EarlyVC: ["Early Stage VC"]
+    Is_LaterVC: ["Later Stage VC"]
+    Is_MA: ["Merger/Acquisition", "Buyout/LBO", "Debt - Acquisition", "Debt - Merger", "Merger of Equals", "Investor Buyout by Management", "Corporate Asset Purchase", "Reverse Merger"]
+    Is_Public_Exit: ["IPO", "Secondary Transaction - Open Market", "Secondary Transaction - Stock Distribution", "Public Investment 2nd Offering", "PIPE"]
+    Is_Out: ["Bankruptcy: Admin/Reorg", "Bankruptcy: Liquidation", "Out of Business", "Restart - Angel", "Restart - Early VC", "Restart - Later VC"]
+    Is_Debt: ["Debt - General", "Debt Conversion", "Mezzanine", "Convertible Debt", "Debt Refinancing", "Debt - PPP", "Debt Repayment", "Dividend Recapitalization", "Exit Financing", "Project Financing", "Share Repurchase", "Leveraged Recapitalization"]
+    Is_PE: ["PE Growth/Expansion", "Secondary Transaction - Private", "Corporate", "Platform Creation", "GP Stakes", "General Corporate Purpose", "Capital Spending"]
+    Is_Grant: ["Grant"]
+    Is_SpinOff: ["Spin-Off"]
+    Is_CrowdFunding: ["Equity Crowdfunding", "Product Crowdfunding"]
+    Is_Accelerator: ["Accelerator/Incubator"]
+    Is_Angel: ["Angel (individual)"]
+
+  # Repairing a round that carries no date. The first two steps read the company's
+  # ownership status, the third the founding year; a round with no dated round
+  # beside it keeps no date and leaves the panel.
+  date_repair:
+    bankruptcy_types: ["Bankruptcy: Admin/Reorg", "Bankruptcy: Liquidation", "Out of Business"]
+    out_of_business_status: "Out of Business"
+    acquisition_type: "Merger/Acquisition"
+    acquired_status: ["Acquired/Merged", "Acquired/Merged (Operating Subsidiary)"]
+    first_round_types: ["Accelerator/Incubator", "Angel (individual)", "Grant", "Capitalization", "Early Stage VC", "Seed Round", "Spin-Off"]
+
+  # The round types counted apart in the report of the rounds that leave the panel:
+  # a venture round lost is a growth stage the panel cannot see.
+  venture_types: ["Early Stage VC", "Later Stage VC", "Seed Round"]
+
+  # The four groups the seven growth stages collapse into, and which of them are
+  # terminal: reaching one of those ends the company's panel.
+  stage_groups:
+    Preseed: "Early"
+    Seed: "Early"
+    EarlyVC: "Early"
+    LaterVC_or_Other: "Later"
+    Out: "Out"
+    "Exit_M&A": "Exit"
+    Exit_Public: "Exit"
+  terminal_groups: ["Out", "Exit"]
+
+  # The schema of the released panel, in order. The two last columns are additive:
+  # dropping them returns to the schema the first experiments were run on.
+  columns:
+    - CompanyID
+    - Age
+    - YearFounded
+    - GrowthStageGroup
+    - GrowthNextStageGroup
+    - TimeNextStageGroup
+    - N_Deal
+    - TotalRaised
+    - Percent_Females
+    - Is_Eco
+    - Is_Eng
+    - Is_NS
+    - Is_Hum
+    - Is_SS
+    - Is_Med
+    - Is_Law
+    - Is_IT
+    - Institute
+    - WorkExp_Idx_Mean
+    - Total_Founders
+    - Is_Debt
+    - Is_SpinOff
+    - Is_CrowdFunding
+    - MeanMedianRoundAmount_cum
+    - Is_Accelerator
+    - has_Corporate
+    - has_VentureCapital
+    - has_PublicInvestor
+    - has_Angel_Lead
+    - has_Corporate_Lead
+    - has_VentureCapital_Lead
+    - has_Accelerator_Lead
+    - has_PrivateEquity_Lead
+    - has_PublicInvestor_Lead
+    - HQCountry
+    - PrimaryIndustrySector
+    - SimilarityScoreMean
+    - N_Competitors
+    - Same_Country
+    - Highest_Degree_CEO
+    - Gender_CEO
+    - MeanTotalInvestments_cum
+    - WorkExperienceIndex_CEO
+    - Is_Angel
+    - Total_People
+    - Is_Grant
+    - has_PrivateEquity
+    - TotalInvestors
+    - Highest_Degree_Mean
+    - Avg_Earliest_Year
+    - UndisclosedAmountShare
+    - N_Similar
+
+  # What one run of the pipeline is expected to produce, per extraction. The
+  # counts belong to the data, not to the code: a deviation means "something
+  # changed, understand what before using the result", not "there is a bug".
+  expected:
+    pitchbook:
+      rows: 802148
+      companies: 116312
+      with_team: 700699
+      with_stage: 561333
+    example:
+      rows: 79
+      companies: 10
+      with_team: 46
+      with_stage: 32

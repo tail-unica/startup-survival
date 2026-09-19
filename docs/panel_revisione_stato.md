@@ -67,6 +67,59 @@ somiglianza di parole al 50%, quindi un ateneo che condivide due parole su quatt
 con uno dei primi 50 risulta top 50. Il test la fissa e la dichiara; cambiarla
 sposterebbe una feature dei modelli, percio' resta una decisione aperta.
 
+## 2026-09-18 — la pipeline nei moduli, tre notebook e una CLI
+
+**La logica del panel non vive piu' nel notebook.** Le sette fasi sono in
+`src/panel/`, una funzione per passaggio: `companies.py` (5 funzioni), `people.py`
+(11), `team.py` (6), `deals.py` (9), `stages.py` (6), `target.py` (3),
+`competitors.py` (3), piu' `pipeline.build_panel` che le concatena e `checks.py`
+con le invarianti.
+
+*Verificato fase per fase contro gli output del notebook: scheletro, registro,
+`db3`, esperienza, istruzione, ruoli CEO, panel di team, panel dei deal e panel di
+fase 5 tutti identici; e il panel finale identico bit per bit in entrambe le
+configurazioni* (802.148 x 52 temporizzato e fotografia, 139 s e 117 s, picco 1,8 e
+1,4 GB: piu' veloce e piu' leggero del notebook, che passava da un parquet all'altro
+a ogni stadio).
+
+**Tre notebook al posto di due**, in inglese, con una chiamata per passaggio e la
+spiegazione accanto: `1_panel_construction.ipynb` (29 celle di codice),
+`2_dataset_construction.ipynb`, `3_experiments.ipynb`. *Verificato: il notebook 1
+produce il panel identico al riferimento, e il notebook 2 i due dataset processati
+identici a quelli rilasciati, con la strada passo-per-passo che coincide con
+`build_processed_datasets`.*
+
+**Una CLI, `scripts/pipeline.py`**, con `tables`, `panel`, `datasets`,
+`experiments` e `all`. Non reimplementa niente: chiama le stesse funzioni dei
+notebook. `--example` fa girare tutto sull'estrazione sintetica, scrivendo sotto
+`data/example/` — compresi i dataset processati, perche' una prova non deve poter
+sovrascrivere i file su cui si basa l'articolo.
+
+**W&B e' opzionale.** `run_once` e' il corpo di un run, e `run_grid` espande la
+griglia dichiarata nello sweep (7 famiglie x 5 seed = 35 run) senza agente: a
+interruttore spento le metriche si stampano e restano negli store, che e' quello che
+le tabelle leggono. *Provato: un run locale completo su `window`, AUC 0,764.*
+
+**In `config.yaml`** sono finite tutte le costanti: regole dei titoli di studio e
+delle aree, pattern di fondatore e CEO, titoli dal nome, 24 tipi di investitore in 7
+categorie, 14 gruppi di tipi di deal, le regole dei quattro passaggi sulle date, i
+gruppi di stadio, lo schema a 52 colonne, le due soglie dei mancanti e i conteggi
+attesi per estrazione. Le legge `PanelRules`, e la CLI puo' sovrascrivere le soglie
+per un singolo run.
+
+**I test non leggono piu' il sorgente delle celle** e non eseguono piu' un notebook:
+274 in tutto, fra unit test per fase, l'end-to-end che chiama `build_panel` sui dati
+sintetici (24 test in 4 secondi invece di 20) e il contratto fra le tre parti.
+
+**Cancellati** `build_panel.ipynb`, `notebook.ipynb` e `scripts/build_datasets.py`.
+
+Due cose emerse portando il codice: `ruoli_ceo` aveva un ordine di righe non
+deterministico (ora `company_years` ordina), e le due tabelle per persona sono
+calcolate sull'insieme di coppie *prima* del taglio all'ultimo anno di vita, cosa che
+nel notebook dipendeva dall'ordine delle celle e ora e' un argomento esplicito. La
+CLI ha anche scoperto che la dummy del genere del CEO dava per scontati tutti i suoi
+livelli: su un dataset piccolo mancava una colonna e il preprocessing si fermava.
+
 ## 2026-09-18 — l'estrazione sintetica di esempio
 
 Il panel e le tabelle PitchBook non sono redistribuibili, quindi il repository

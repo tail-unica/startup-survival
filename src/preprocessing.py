@@ -6,7 +6,7 @@ import polars as pl
 #: The panel columns the models read, in the order the datasets carry them.
 #: ``Target`` is built by :func:`build_windowed_dataset` or
 #: :func:`build_full_history_dataset`; every other name has to exist in the panel
-#: that ``build_panel.ipynb`` produces, which is what
+#: that ``src/panel/pipeline.py`` produces, which is what
 #: ``tests/test_integration.py`` checks.
 FEATURE_COLUMNS: list[str] = [
     "YearFounded",
@@ -398,6 +398,69 @@ def build_full_history_dataset(initialPanel, dataset_window):
     return df_target_final
 
 
+def build_processed_datasets(
+    timed_panel,
+    snapshot_panel,
+    university_ranking_path,
+    *,
+    time_window=7,
+    last_year=2024,
+    missing_threshold=0.5,
+    max_missing_per_row=6,
+):
+    """Build the two datasets the experiments compare, from the two panels.
+
+    The bias-controlled one comes from the **timed** panel, where every attribute
+    is the one of the row's own year, and every feature is read at the age the firm
+    first reached an early stage. The biased one comes from the **snapshot** panel,
+    where the attributes are the ones declared at extraction time, and every
+    feature is cumulated over the firm's whole observed life.
+
+    The order is not an implementation detail: the second is built against the
+    first and then reduced to its rows and columns, because every comparison of
+    the paper assumes the two carry the same firms described in two ways.
+
+    The switches change values, never rows, so the two panels have to carry the
+    same firm-years in the same order. Swapping the target between the two datasets
+    on ``CompanyID`` depends on it, so it is checked rather than assumed.
+
+    :param timed_panel: The panel built with the timing on.
+    :param snapshot_panel: The panel built with the timing off.
+    :param university_ranking_path: Path of the raw QS world ranking file.
+    :param time_window: Years the target is read over.
+    :param last_year: Last year the extraction covers.
+    :param missing_threshold: Share of missing values past which a column is dropped.
+    :param max_missing_per_row: A row with this many missing values or more is dropped.
+    :return: The windowed dataset and the full-history one.
+    :raises ValueError: If the two panels do not carry the same firm-years.
+    """
+    keys = ["CompanyID", "Age"]
+    if not timed_panel.select(keys).equals(snapshot_panel.select(keys)):
+        raise ValueError(
+            "the two panels do not carry the same firm-years: rebuild them from the "
+            "same extraction, flipping only the switches"
+        )
+    thresholds = {
+        "missing_threshold": missing_threshold,
+        "max_missing_per_row": max_missing_per_row,
+    }
+    window = preprocess_dataset(
+        build_windowed_dataset(timed_panel, time_window, last_year),
+        university_ranking_path,
+        **thresholds,
+    )
+    nowindow = preprocess_dataset(
+        build_full_history_dataset(snapshot_panel, window),
+        university_ranking_path,
+        flag_no_time_window=True,
+        **thresholds,
+    )
+    # Same firms, same columns, same order: the comparisons are between the same
+    # companies described in two ways.
+    nowindow = nowindow.filter(pl.col("CompanyID").is_in(window["CompanyID"].implode()))
+    return window, nowindow.select(window.columns)
+
+
 def create_has_top50_institute_flag(dataset, university_ranking_path):
     """
     This function takes the dataset and the path of the raw QS world university ranking file,
@@ -427,7 +490,9 @@ def create_has_top50_institute_flag(dataset, university_ranking_path):
     return datasetWithUniversityFlag
 
 
-def handle_missing_values(dataset, flag_no_time_window):
+def handle_missing_values(
+    dataset, flag_no_time_window, *, missing_threshold=0.5, max_missing_per_row=6
+):
     """
     This function takes the dataset and handles the missing values by dropping rows with missing
     values in crucial variables,
@@ -442,6 +507,8 @@ def handle_missing_values(dataset, flag_no_time_window):
 
     :param dataset: Input dataset
     :param flag_no_time_window: Flag indicating whether to create a time window dataset
+    :param missing_threshold: Share of missing values past which a column is dropped
+    :param max_missing_per_row: A row with this many missing values or more is dropped
     """
 
     # Missing values handling
@@ -501,8 +568,9 @@ def handle_missing_values(dataset, flag_no_time_window):
 
         # A feature missing on more than half the rows is dropped: past that
         # point the imputation would be inventing the column rather than
-        # completing it.
-        threshold = 0.5
+        # completing it. It comes from config.yaml, and the command line can
+        # override it for one run.
+        threshold = missing_threshold
 
         # Identify columns to keep based on the proportion of missing values
         cols_to_keep = [
@@ -532,13 +600,20 @@ def handle_missing_values(dataset, flag_no_time_window):
         )
 
         datasetWithNoMissingValues = datasetWithNoMissingValues.filter(
-            pl.col("null_count_row") < 6
+            pl.col("null_count_row") < max_missing_per_row
         ).drop("null_count_row")
 
     return datasetWithNoMissingValues
 
 
-def preprocess_dataset(dataset, university_ranking_path, flag_no_time_window=False):
+def preprocess_dataset(
+    dataset,
+    university_ranking_path,
+    flag_no_time_window=False,
+    *,
+    missing_threshold=0.5,
+    max_missing_per_row=6,
+):
     """
     This function takes the initial dataset and the path of the raw QS world university ranking
     file, and performs the following preprocessing steps:
@@ -563,6 +638,8 @@ def preprocess_dataset(dataset, university_ranking_path, flag_no_time_window=Fal
     :param flag_no_time_window: Flag indicating whether to create a time window dataset
     (default is False, meaning that we will create the time window dataset, if True we will create
     the dataset without time window)
+    :param missing_threshold: Share of missing values past which a column is dropped
+    :param max_missing_per_row: A row with this many missing values or more is dropped
     """
 
     # Select only the relevant columns for the features and the target variable
@@ -574,12 +651,19 @@ def preprocess_dataset(dataset, university_ranking_path, flag_no_time_window=Fal
         filteredDataset, university_ranking_path
     )
 
-    # Handle Gender_CEO categorical variable in binary format
-    filteredDatasetWithUniversityFlag = (
-        filteredDatasetWithUniversityFlag.to_dummies("Gender_CEO")
-        .drop("Gender_CEO_Male")
-        .drop("Gender_CEO_null")
+    # Handle Gender_CEO categorical variable in binary format: one indicator, and
+    # the other two levels dropped. A level a dataset happens not to carry — a tiny
+    # one, or the synthetic example — simply does not appear, so the drop is
+    # conditional and the indicator is added as zeros when nobody matches it.
+    filteredDatasetWithUniversityFlag = filteredDatasetWithUniversityFlag.to_dummies("Gender_CEO")
+    spent = ["Gender_CEO_Male", "Gender_CEO_null"]
+    filteredDatasetWithUniversityFlag = filteredDatasetWithUniversityFlag.drop(
+        [c for c in spent if c in filteredDatasetWithUniversityFlag.columns]
     )
+    if "Gender_CEO_Female" not in filteredDatasetWithUniversityFlag.columns:
+        filteredDatasetWithUniversityFlag = filteredDatasetWithUniversityFlag.with_columns(
+            pl.lit(0, dtype=pl.UInt8).alias("Gender_CEO_Female")
+        )
 
     # Handle missing values
     # Keep attention: in these experiments i'm assuming that the missing values are in the same
@@ -590,7 +674,10 @@ def preprocess_dataset(dataset, university_ranking_path, flag_no_time_window=Fal
     # if these assumptions hold and eventually adapt the missing values handling strategy to the
     # specific characteristics of the new dataset.
     datasetWithNoMissingValues = handle_missing_values(
-        filteredDatasetWithUniversityFlag, flag_no_time_window
+        filteredDatasetWithUniversityFlag,
+        flag_no_time_window,
+        missing_threshold=missing_threshold,
+        max_missing_per_row=max_missing_per_row,
     )
 
     # Create the final dataset by encoding the target variable as binary (1 for "Later" and "Exit"
