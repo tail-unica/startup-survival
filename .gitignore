@@ -3,12 +3,22 @@ venv/
 wandb/
 img/
 
-data/raw/panel.csv.gz
+.env
 
-# Temporary files
+# Temporary files, and the split cache
 tmp/
 
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+
+docs/
+data/raw/pitchbook/
+data/interim/
+data/example/interim/
+data/example/processed/

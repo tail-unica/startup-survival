@@ -1,0 +1,4 @@
+PersonID,CompanyID,StartDate,IsCurrent
+P1,08,03/01/2017,Yes
+P4,01,01/01/2015,Yes
+P7,09,,No

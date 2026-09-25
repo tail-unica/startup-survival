@@ -1,0 +1,15 @@
+CompanyID,DealID,DealNo,DealDate,DealType,TotalInvestedCapital,CEOPBId,DealSize
+01,D1,1,04/10/2013,Seed Round,0.8,P1,0.8
+01,D2,2,06/01/2015,Early Stage VC,3.5,P1,3.5
+01,D3,3,09/15/2018,Later Stage VC,,P2,
+02,D4,1,05/05/2014,Seed Round,0.5,P6,0.5
+02,D5,2,,Merger/Acquisition,12.0,P6,12.0
+03,D6,1,02/01/2015,Accelerator/Incubator,0.05,P8,0.05
+03,D7,2,,Bankruptcy: Liquidation,,P8,
+04,D8,1,,Grant,0.1,P6,0.1
+05,D9,1,03/12/2012,Angel (individual),0.2,P7,0.2
+05,D10,2,,Seed Round,0.4,P7,0.4
+05,D11,3,,Early Stage VC,1.2,P7,1.2
+05,D12,4,07/01/2018,Later Stage VC,6.0,P7,6.0
+11,D13,1,01/01/2005,Seed Round,0.3,,0.3
+06,D14,1,01/01/2016,Grant,0.05,P5,0.05

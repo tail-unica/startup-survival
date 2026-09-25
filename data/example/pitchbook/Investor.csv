@@ -1,0 +1,5 @@
+InvestorID,PrimaryInvestorType,TotalInvestments,MedianRoundAmount,YearFounded
+I1,Venture Capital,120,4.0,2005
+I2,Accelerator/Incubator,300,0.1,2010
+I3,Angel (individual),8,0.3,
+I4,Corporation,25,10.0,1998
