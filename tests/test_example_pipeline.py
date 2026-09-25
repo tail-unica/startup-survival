@@ -16,6 +16,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 import yaml
+from polars.testing import assert_frame_equal
 
 from src.panel import checks
 from src.panel.config import PanelConfig, PanelRules
@@ -72,14 +73,19 @@ def test_the_released_example_panels_are_what_the_pipeline_produces(
 
     They are what ``scripts/pipeline.py panel --example --both`` writes, and that
     command is how they are refreshed when the pipeline changes on purpose.
+
+    Compared as tables, not as text: the floating-point columns can differ in
+    the last digit from one machine to another, which is not a change.
     """
     for built, name in ((panel, "panel_timed.csv"), (snapshot_panel, "panel_snapshot.csv")):
-        built.write_csv(tmp_path / name)
-        released = ROOT / "data" / "example" / name
-        assert (tmp_path / name).read_text() == released.read_text(), (
-            f"{name} no longer matches the pipeline: refresh it with "
-            "`python scripts/pipeline.py panel --example --both`"
-        )
+        released = pl.read_csv(ROOT / "data" / "example" / name, schema=built.schema)
+        try:
+            assert_frame_equal(built, released, check_exact=False, rel_tol=1e-9, abs_tol=1e-12)
+        except AssertionError as error:
+            raise AssertionError(
+                f"{name} no longer matches the pipeline: refresh it with "
+                "`python scripts/pipeline.py panel --example --both`"
+            ) from error
 
 
 def test_the_fixture_numbers_the_companies_as_the_pipeline_will(panel):
