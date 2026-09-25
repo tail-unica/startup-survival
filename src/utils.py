@@ -1,13 +1,28 @@
+import hashlib
+import json
 import os
 import random
-from matplotlib import pyplot as plt
-from matplotlib.patches import Patch
-import seaborn as sns
+from pathlib import Path
+
+import joblib
 import numpy as np
 import pandas as pd
+import seaborn as sns
+import shap
 import torch
+from matplotlib import pyplot as plt
+from matplotlib.patches import Patch
 from scipy.stats import wilcoxon
-from statsmodels.stats.multitest import multipletests
+from sklearn.impute import KNNImputer
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import RobustScaler
+
+from src.encoding import (
+    DEFAULT_MIN_FREQUENCY,
+    DEFAULT_OTHER_LABEL,
+    apply_frequency_encoding,
+    fit_frequency_encoding,
+)
 
 
 def set_seed(seed):
@@ -24,24 +39,287 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def plot_correlation_heatmap(df, exclude_cols=['CompanyID', 'Target']):
 
+def prepare_splits(
+    X,
+    y,
+    seed,
+    test_size=0.4,
+    n_neighbors=5,
+    categorical_columns=(),
+    min_frequency=DEFAULT_MIN_FREQUENCY,
+    other_label=DEFAULT_OTHER_LABEL,
+    stratify=None,
+):
+    """
+    Builds one stratified train/validation/test split, encoded, imputed and scaled.
+
+    The three fitted objects (frequency encoding, imputer, scaler) are all
+    fitted on this seed's training set alone, in that order. Refitting them per
+    seed is what keeps the multi-seed evaluation free of the look-ahead leakage
+    the paper is about: reusing one seed's imputer across splits would leak
+    held-out information into every other split.
+
+    The frequency encoding runs first, and it runs here rather than in
+    preprocessing, because a category share computed before the split is
+    computed partly from the very rows it will later encode. See
+    :mod:`src.encoding`.
+
+    :param X:                   feature frame, without CompanyID and Target. May
+                                still carry raw categorical columns.
+    :param y:                   target series.
+    :param seed:                seed driving both splits, so the partition is
+                                reproducible.
+    :param test_size:           fraction held out of training, halved into val
+                                and test.
+    :param n_neighbors:         neighbours used by the KNN imputer.
+    :param categorical_columns: columns to frequency-encode. Names absent from X
+                                are ignored, so one config serves the
+                                experiments that drop some features.
+    :param min_frequency:       training share below which a category is pooled
+                                into ``other_label``.
+    :param other_label:         label of the pooled bucket.
+    :param stratify:            labels the two splits are stratified on, row for
+                                row with X; ``None`` stratifies on y. The
+                                experiments pass the controlled target, so that
+                                every setting draws the same firms into the same
+                                sets whatever its own target says.
+    :return:                    dict with the raw frames (X_train/X_val/X_test),
+                                the targets, the imputed arrays (*_imp), the
+                                scaled arrays (*_scaled) and the fitted
+                                ``encodings``.
+    """
+    strata = y if stratify is None else stratify
+    X_train, X_temp, y_train, y_temp, _, strata_temp = train_test_split(
+        X, y, strata, test_size=test_size, stratify=strata, random_state=seed
+    )
+    X_val, X_test, y_val, y_test = train_test_split(
+        X_temp, y_temp, test_size=0.5, stratify=strata_temp, random_state=seed
+    )
+
+    X_train, X_val, X_test = X_train.copy(), X_val.copy(), X_test.copy()
+
+    encodings = {}
+    for column in [c for c in categorical_columns if c in X_train.columns]:
+        encodings[column] = fit_frequency_encoding(
+            X_train[column], min_frequency=min_frequency, other_label=other_label
+        )
+        for frame in (X_train, X_val, X_test):
+            frame[column] = apply_frequency_encoding(
+                frame[column], encodings[column], other_label=other_label
+            )
+
+    imputer = KNNImputer(n_neighbors=n_neighbors)
+    X_train_imp = imputer.fit_transform(X_train)
+    X_val_imp = imputer.transform(X_val)
+    X_test_imp = imputer.transform(X_test)
+
+    scaler = RobustScaler()
+    X_train_scaled = scaler.fit_transform(X_train_imp)
+    X_val_scaled = scaler.transform(X_val_imp)
+    X_test_scaled = scaler.transform(X_test_imp)
+
+    return {
+        "seed": seed,
+        "X_train": X_train,
+        "X_val": X_val,
+        "X_test": X_test,
+        "y_train": y_train,
+        "y_val": y_val,
+        "y_test": y_test,
+        "X_train_imp": X_train_imp,
+        "X_val_imp": X_val_imp,
+        "X_test_imp": X_test_imp,
+        "X_train_scaled": X_train_scaled,
+        "X_val_scaled": X_val_scaled,
+        "X_test_scaled": X_test_scaled,
+        "encodings": encodings,
+    }
+
+
+def _split_fingerprint(
+    X, test_size, n_neighbors, categorical_columns, min_frequency, other_label, stratify=None
+):
+    """
+    Short hash of everything that changes a split other than tag and seed.
+
+    Without it a cached split silently survives a change to the threshold, to
+    the encoded columns, or to the dataset itself, which is exactly how the
+    splits in tmp/splits outlived the move of the frequency encoding past the
+    split. The *contents* of X are hashed, not just its shape, so regenerating
+    the processed CSVs invalidates the cache even when the schema is unchanged.
+    Hashing 30k x 45 cells costs ~70 ms against the minutes the cache saves,
+    and it is paid once per get_split call, cache hit included.
+    """
+    payload = json.dumps(
+        {
+            "columns": list(map(str, X.columns)),
+            "data": int(pd.util.hash_pandas_object(X, index=True).sum()),
+            "test_size": test_size,
+            "n_neighbors": n_neighbors,
+            "categorical_columns": sorted(str(c) for c in categorical_columns),
+            "min_frequency": min_frequency,
+            "other_label": other_label,
+            # Hashed by position: the same labels in another order are another split.
+            "stratify": None
+            if stratify is None
+            else int(pd.util.hash_pandas_object(pd.Series(np.asarray(stratify))).sum()),
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha1(payload.encode()).hexdigest()[:8]
+
+
+def get_split(
+    X,
+    y,
+    seed,
+    test_size=0.4,
+    n_neighbors=5,
+    cache_dir="tmp/splits",
+    tag="",
+    categorical_columns=(),
+    min_frequency=DEFAULT_MIN_FREQUENCY,
+    other_label=DEFAULT_OTHER_LABEL,
+    stratify=None,
+    force=False,
+):
+    """
+    prepare_splits with an on-disk cache keyed by (tag, seed, configuration).
+
+    The KNN imputation costs minutes on the full dataset, and a multi-seed sweep
+    revisits the same split once per model. Caching turns that into one cost per
+    (experiment, seed) instead of one per run, and it survives a kernel restart.
+    Only the requested split is held in memory, which matters because the five
+    splits together do not comfortably fit alongside a fitted SVM.
+
+    :param cache_dir: directory holding the cached splits; created if missing.
+    :param tag:       experiment tag, so controlled/leakboth/noteam/nocompetitors
+                      never share a cache entry.
+    :param force:     recompute and overwrite the cache entry even if present.
+    :return:          same dict as prepare_splits.
+    """
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    fingerprint = _split_fingerprint(
+        X, test_size, n_neighbors, categorical_columns, min_frequency, other_label, stratify
+    )
+    cache_file = cache_dir / f"split_{tag}_seed{seed}_{fingerprint}.joblib"
+
+    if cache_file.is_file() and not force:
+        return joblib.load(cache_file)
+
+    split = prepare_splits(
+        X,
+        y,
+        seed,
+        test_size=test_size,
+        n_neighbors=n_neighbors,
+        categorical_columns=categorical_columns,
+        min_frequency=min_frequency,
+        other_label=other_label,
+        stratify=stratify,
+    )
+    joblib.dump(split, cache_file)
+    return split
+
+
+def clear_split_cache(cache_dir="tmp/splits", tag=None):
+    """
+    Deletes cached splits so the next get_split rebuilds them.
+
+    The fingerprint in the file name already invalidates a stale entry, but it
+    leaves the old file on disk; this is the notebook's one-liner for wiping a
+    cache on purpose, and for reclaiming the space afterwards.
+
+    :param cache_dir: directory holding the cached splits.
+    :param tag:       experiment tag to clear; None clears every tag.
+    :return:          number of files removed.
+    """
+    cache_dir = Path(cache_dir)
+    if not cache_dir.is_dir():
+        return 0
+
+    pattern = "split_*.joblib" if tag is None else f"split_{tag}_seed*.joblib"
+    removed = 0
+    for path in cache_dir.glob(pattern):
+        path.unlink()
+        removed += 1
+    return removed
+
+
+def compute_permutation_shap(
+    model, background, to_explain, n_explain=100, n_background=20, random_state=None
+):
+    """
+    Computes SHAP values with shap.PermutationExplainer for any model exposing
+    predict_proba, using the probability of the positive class as the output.
+
+    This is the explainer used for SVM and TabPFN: neither admits TreeExplainer
+    or LinearExplainer, and KernelExplainer is intractable on them (an RBF SVM
+    carries thousands of support vectors, and TabPFN runs a full forward
+    pass per evaluation).
+    PermutationExplainer needs only 2*n_features+1 evaluations per explained
+    row, so the cost is bounded by n_explain * (2*n_features+1) * n_background
+    model calls.
+
+    :param model:         fitted estimator exposing predict_proba.
+    :param background:    reference data the explainer masks features against.
+    :param to_explain:    rows to explain; only the first n_explain are used.
+    :param n_explain:     number of rows to explain (clamped to what is available).
+    :param n_background:  number of background rows (clamped to what is available).
+    :param random_state:  seed for the background subsample, for reproducibility.
+    :return:              numpy array of shape (n_explain, n_features).
+    """
+    background = np.asarray(background)
+    to_explain = np.asarray(to_explain)
+
+    n_background = min(n_background, len(background))
+    n_explain = min(n_explain, len(to_explain))
+
+    rng = np.random.default_rng(random_state)
+    idx = rng.choice(len(background), size=n_background, replace=False)
+    masker = background[idx]
+    sample = to_explain[:n_explain]
+
+    n_features = sample.shape[1]
+    max_evals = 2 * n_features + 1
+
+    explainer = shap.PermutationExplainer(
+        lambda x: model.predict_proba(x)[:, 1],
+        masker,
+        seed=random_state,
+    )
+    explanation = explainer(sample, max_evals=max_evals)
+
+    return np.asarray(explanation.values)  # ty: ignore[unresolved-attribute]
+
+
+def plot_correlation_heatmap(df, exclude_cols=None):
     """
     Creates a correlation heatmap for the given DataFrame, excluding specified columns.
-    
+
+    Only the numeric columns are correlated. The processed datasets carry
+    HQCountry and PrimaryIndustrySector as raw categories, they are
+    frequency-encoded per split, later, inside prepare_splits, and pandas'
+    .corr() raises on a string column rather than skipping it.
+
     :param df: The input DataFrame for which the correlation heatmap will be generated.
-    :param exclude_cols: A list of column names to exclude from the correlation calculation. Default is ['CompanyID', 'Target'].
+    :param exclude_cols: Column names to exclude from the correlation calculation.
+        Defaults to ['CompanyID', 'Target'].
     """
 
+    if exclude_cols is None:
+        exclude_cols = ["CompanyID", "Target"]
 
-    corr_matrix = df.drop(exclude_cols, axis=1).corr()
-    
+    corr_matrix = df.drop(exclude_cols, axis=1).corr(numeric_only=True)
+
     plt.figure(figsize=(30, 20))
-    ax = sns.heatmap(data=corr_matrix, cmap='YlGnBu', annot=True)
+    ax = sns.heatmap(data=corr_matrix, cmap="YlGnBu", annot=True)
     bottom, top = ax.get_ylim()
     ax.set_ylim(bottom + 0.5, top - 0.5)
     plt.show()
-    
+
     return corr_matrix
 
 
@@ -54,68 +332,109 @@ def to_tensors(X, y):
     :return: A tuple containing the input features and target labels as PyTorch tensors.
     """
 
-    y_np = y.values if hasattr(y, 'values') else y
+    y_np = y.values if hasattr(y, "values") else y
     return (
         torch.tensor(X, dtype=torch.float32),
-        torch.tensor(y_np, dtype=torch.float32).unsqueeze(1)
+        torch.tensor(y_np, dtype=torch.float32).unsqueeze(1),
     )
 
 
-def _prepare_shap_comparison(shap_store, top_k=20):
+def save_figure(fig, name, config, dpi=200):
+    """Write a figure under the directory ``config['figures']['dir']``.
+
+    The caller owns the name, and every SHAP name carries the model and the
+    experiments it belongs to, so a re-run overwrites its own figure and nothing
+    else.
+
+    :param fig:    the figure to write, or ``None`` for the current one.
+    :param name:   file name without extension.
+    :param config: the parsed ``config.yaml``.
+    :param dpi:    resolution of the written image.
+    :return:       the path written, as a ``Path``.
     """
-    Helper: extracts and prepares SHAP values and feature info for the bias-controlled vs no-window comparison plot.
+    directory = Path(config["figures"]["dir"])
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}.png"
+    (fig or plt.gcf()).savefig(path, dpi=dpi, bbox_inches="tight")
+    return path
+
+
+def _prepare_shap_comparison(
+    shap_store, model="lgb", experiments=("controlled", "leakboth"), top_k=20
+):
+    """
+    Helper: extracts and prepares SHAP values and feature info for the
+    comparison plot between two experiments of one model family.
+
+    :param shap_store:  dictionary populated by run_once, keyed by (model, experiment).
+    :param model:       the model family to compare, e.g. "lgb".
+    :param experiments: the two experiment tags, reference first.
+    :param top_k:       how many features to keep, ordered by the second experiment.
 
     Returns a dictionary with:
         sv_b, sv_n             : SHAP arrays (n_samples, n_features)
         features_baseline      : list of feature names for the bias-controlled model
-        features_nowindow      : list of feature names for the no-window model
-        ranking_n              : top-k features ordered by no-window importance
+        features_leakboth      : list of feature names for the leaked model
+        ranking_n              : top-k features ordered by leaked importance
         rank_base              : dict {feature: rank} for the bias-controlled model
         idx_base, idx_now      : dict {feature: column_index}
         mean_abs_b, mean_abs_n : mean absolute importance per feature
     """
+
     def squeeze_shap(sv):
         sv = np.asarray(sv)
         if sv.ndim == 3:
             sv = sv[:, :, 1]
         return sv
 
-    sv_b = squeeze_shap(shap_store[("lgb", "window")]["shap_values"])
-    sv_n = squeeze_shap(shap_store[("lgb", "nowindow")]["shap_values"])
+    exp_b, exp_n = experiments
+    missing = [(model, t) for t in (exp_b, exp_n) if (model, t) not in shap_store]
+    if missing:
+        raise KeyError(
+            f"no SHAP values for {missing}; run those experiments first "
+            f"(the store holds {sorted(shap_store)})"
+        )
 
-    sample_b = shap_store[("lgb", "window")]["explainer_sample"]
-    sample_n = shap_store[("lgb", "nowindow")]["explainer_sample"]
+    sv_b = squeeze_shap(shap_store[(model, exp_b)]["shap_values"])
+    sv_n = squeeze_shap(shap_store[(model, exp_n)]["shap_values"])
 
-    features_baseline = (list(pd.DataFrame(sample_b).columns)
-                         if hasattr(sample_b, "columns") or isinstance(sample_b, (pd.DataFrame, np.ndarray))
-                         else [f"f{i}" for i in range(sv_b.shape[1])])
-    features_nowindow = (list(pd.DataFrame(sample_n).columns)
-                         if hasattr(sample_n, "columns") or isinstance(sample_n, (pd.DataFrame, np.ndarray))
-                         else [f"f{i}" for i in range(sv_n.shape[1])])
+    sample_b = shap_store[(model, exp_b)]["explainer_sample"]
+    sample_n = shap_store[(model, exp_n)]["explainer_sample"]
 
-    
+    features_baseline = (
+        list(pd.DataFrame(sample_b).columns)
+        if hasattr(sample_b, "columns") or isinstance(sample_b, (pd.DataFrame, np.ndarray))
+        else [f"f{i}" for i in range(sv_b.shape[1])]
+    )
+    features_leakboth = (
+        list(pd.DataFrame(sample_n).columns)
+        if hasattr(sample_n, "columns") or isinstance(sample_n, (pd.DataFrame, np.ndarray))
+        else [f"f{i}" for i in range(sv_n.shape[1])]
+    )
+
     if isinstance(sample_b, pd.DataFrame):
         features_baseline = list(sample_b.columns)
     if isinstance(sample_n, pd.DataFrame):
-        features_nowindow = list(sample_n.columns)
+        features_leakboth = list(sample_n.columns)
 
     mean_abs_b = np.abs(sv_b).mean(axis=0)
     mean_abs_n = np.abs(sv_n).mean(axis=0)
 
-    order_n   = np.argsort(-mean_abs_n)
-    ranking_n = [features_nowindow[i] for i in order_n][:top_k]
+    order_n = np.argsort(-mean_abs_n)
+    ranking_n = [features_leakboth[i] for i in order_n][:top_k]
 
-    order_b        = np.argsort(-mean_abs_b)
+    order_b = np.argsort(-mean_abs_b)
     ranking_b_full = [features_baseline[i] for i in order_b]
-    rank_base      = {f: i + 1 for i, f in enumerate(ranking_b_full)}
+    rank_base = {f: i + 1 for i, f in enumerate(ranking_b_full)}
 
     idx_base = {f: i for i, f in enumerate(features_baseline)}
-    idx_now  = {f: i for i, f in enumerate(features_nowindow)}
+    idx_now = {f: i for i, f in enumerate(features_leakboth)}
 
     return dict(
-        sv_b=sv_b, sv_n=sv_n,
+        sv_b=sv_b,
+        sv_n=sv_n,
         features_baseline=features_baseline,
-        features_nowindow=features_nowindow,
+        features_leakboth=features_leakboth,
         ranking_n=ranking_n,
         rank_base=rank_base,
         idx_base=idx_base,
@@ -125,32 +444,44 @@ def _prepare_shap_comparison(shap_store, top_k=20):
     )
 
 
-def plot_shap_comparison(shap_store, top_k=20):
+def plot_shap_comparison(
+    shap_store, model="lgb", experiments=("controlled", "leakboth"), top_k=20, labels=None
+):
     """
-    Generate a comparison plot of SHAP value distributions for the bias-controlled model vs the no-window model (with leakage).
+    Generate a comparison plot of SHAP value distributions between two
+    experiments of the same model family, by default the bias-controlled model
+    against the leaked one (with leakage).
 
-    Needs shap_store to contain the keys ("lgb", "window") and ("lgb", "nowindow") with the corresponding SHAP values and explainer samples.
+    Needs shap_store to contain the keys (model, experiments[0]) and
+    (model, experiments[1]) with the corresponding SHAP values and explainer
+    samples.
 
-    :param shap_store: dictionary populated by the train() function in the notebook.
-    :param top_k:      number of top features to display (ordered by no-window importance).
-    :return:           matplotlib.figure.Figure object
+    :param shap_store:  dictionary populated by the train() function in the notebook.
+    :param model:       the model family to compare, e.g. "lgb".
+    :param experiments: the two experiment tags; the first is the reference (blue,
+                        above), the second the one the ranking is taken from.
+    :param labels:      legend labels for the two experiments; the tags by default.
+    :param top_k:       number of top features to display (ordered by the second
+                        experiment's importance).
+    :return:            matplotlib.figure.Figure object
     """
-    d = _prepare_shap_comparison(shap_store, top_k)
+    d = _prepare_shap_comparison(shap_store, model, experiments, top_k)
+    label_b, label_n = labels if labels else experiments
 
-    sv_b      = d["sv_b"]
-    sv_n      = d["sv_n"]
+    sv_b = d["sv_b"]
+    sv_n = d["sv_n"]
     ranking_n = d["ranking_n"]
     rank_base = d["rank_base"]
-    idx_base  = d["idx_base"]
-    idx_now   = d["idx_now"]
+    idx_base = d["idx_base"]
+    idx_now = d["idx_now"]
 
     COLOR_BASELINE = "#1f77b4"
     COLOR_NOWINDOW = "#ff7f0e"
-    COLOR_UP       = "#2e7d32"
-    COLOR_DOWN     = "#c62828"
-    COLOR_FLAT     = "#616161"
+    COLOR_UP = "#2e7d32"
+    COLOR_DOWN = "#c62828"
+    COLOR_FLAT = "#616161"
 
-    Y_OFFSET  = 0.22
+    Y_OFFSET = 0.22
     BOX_WIDTH = 0.35
 
     fig, ax = plt.subplots(figsize=(11, 0.25 * top_k + 2))
@@ -169,17 +500,22 @@ def plot_shap_comparison(shap_store, top_k=20):
                 medianprops=dict(color="white", lw=1.5),
                 whiskerprops=dict(color=COLOR_BASELINE, lw=1),
                 capprops=dict(color=COLOR_BASELINE, lw=1),
-                boxprops=dict(facecolor=COLOR_BASELINE,
-                              edgecolor=COLOR_BASELINE, alpha=0.75),
+                boxprops=dict(facecolor=COLOR_BASELINE, edgecolor=COLOR_BASELINE, alpha=0.75),
             )
         else:
             ax.axhspan(i - 0.45, i + 0.45, color="#f5f5f5", zorder=0)
-            ax.text(0, i - Y_OFFSET,
-                    "not in bias-controlled model",
-                    ha="center", va="center", fontsize=8,
-                    color="#888888", style="italic")
+            ax.text(
+                0,
+                i - Y_OFFSET,
+                f"not in {label_b}",
+                ha="center",
+                va="center",
+                fontsize=8,
+                color="#888888",
+                style="italic",
+            )
 
-        # No-window (orange, below)
+        # Leaked (orange, below)
         col_n = idx_now[feat]
         ax.boxplot(
             sv_n[:, col_n],
@@ -191,8 +527,7 @@ def plot_shap_comparison(shap_store, top_k=20):
             medianprops=dict(color="white", lw=1.5),
             whiskerprops=dict(color=COLOR_NOWINDOW, lw=1),
             capprops=dict(color=COLOR_NOWINDOW, lw=1),
-            boxprops=dict(facecolor=COLOR_NOWINDOW,
-                          edgecolor=COLOR_NOWINDOW, alpha=0.75),
+            boxprops=dict(facecolor=COLOR_NOWINDOW, edgecolor=COLOR_NOWINDOW, alpha=0.75),
         )
 
     ax.axvline(0, color="#999999", lw=0.7, zorder=1)
@@ -221,43 +556,70 @@ def plot_shap_comparison(shap_store, top_k=20):
             old_rank = rank_base[feat]
             delta = old_rank - new_rank
             if delta > 0:
-                txt   = f"{old_rank} → {new_rank}  (+{delta})"
+                txt = f"{old_rank} → {new_rank}  (+{delta})"
                 color = COLOR_UP
             elif delta < 0:
-                txt   = f"{old_rank} → {new_rank}  ({delta})"
+                txt = f"{old_rank} → {new_rank}  ({delta})"
                 color = COLOR_DOWN
             else:
-                txt   = f"{old_rank} → {new_rank}"
+                txt = f"{old_rank} → {new_rank}"
                 color = COLOR_FLAT
         else:
-            txt   = f"new → {new_rank}"
+            txt = f"new → {new_rank}"
             color = COLOR_UP
 
-        ax.text(xr, i, txt,
-                ha="left", va="center",
-                fontsize=8.5, fontweight="bold", color=color,
-                transform=ax.get_yaxis_transform(), clip_on=False,
-                family="monospace")
+        ax.text(
+            xr,
+            i,
+            txt,
+            ha="left",
+            va="center",
+            fontsize=8.5,
+            fontweight="bold",
+            color=color,
+            transform=ax.get_yaxis_transform(),
+            clip_on=False,
+            family="monospace",
+        )
 
-    ax.text(xr, -0.7, "Rank shift",
-            ha="left", va="center", fontsize=9, fontweight="bold",
-            color="#333333", transform=ax.get_yaxis_transform(),
-            clip_on=False)
+    ax.text(
+        xr,
+        -0.7,
+        "Rank shift",
+        ha="left",
+        va="center",
+        fontsize=9,
+        fontweight="bold",
+        color="#333333",
+        transform=ax.get_yaxis_transform(),
+        clip_on=False,
+    )
 
     # Legend
     box_legend = [
-        Patch(facecolor=COLOR_BASELINE, alpha=0.75, edgecolor=COLOR_BASELINE,
-              label="Bias-controlled (proposed)"),
-        Patch(facecolor=COLOR_NOWINDOW, alpha=0.75, edgecolor=COLOR_NOWINDOW,
-              label="No time-window (with leakage)"),
+        Patch(
+            facecolor=COLOR_BASELINE,
+            alpha=0.75,
+            edgecolor=COLOR_BASELINE,
+            label=label_b,
+        ),
+        Patch(
+            facecolor=COLOR_NOWINDOW,
+            alpha=0.75,
+            edgecolor=COLOR_NOWINDOW,
+            label=label_n,
+        ),
     ]
-    leg1 = ax.legend(handles=box_legend,
-                     loc="upper left",
-                     bbox_to_anchor=(0.0, -0.05),
-                     frameon=False, fontsize=9,
-                     title="SHAP distribution",
-                     title_fontsize=9)
-    leg1._legend_box.align = "left"
+    leg1 = ax.legend(
+        handles=box_legend,
+        loc="upper left",
+        bbox_to_anchor=(0.0, -0.05),
+        frameon=False,
+        fontsize=9,
+        title="SHAP distribution",
+        title_fontsize=9,
+    )
+    leg1._legend_box.align = "left"  # ty: ignore[unresolved-attribute]
     ax.add_artist(leg1)
 
     plt.tight_layout()
@@ -266,27 +628,33 @@ def plot_shap_comparison(shap_store, top_k=20):
     return fig
 
 
-def compute_wilcoxon_table(shap_store, top_k=20):
+def compute_wilcoxon_table(
+    shap_store, model="lgb", experiments=("controlled", "leakboth"), top_k=20
+):
     """
-    Computes the Wilcoxon signed-rank table for SHAP comparison (bias-controlled vs no-window)
-    for LightGBM, with FDR correction (Benjamini-Hochberg).
+    Computes the Wilcoxon signed-rank table for the SHAP comparison between two
+    experiments of one model family (by default bias-controlled vs leakboth for
+    LightGBM). The p-values are not corrected for multiple testing.
 
-    Needs shap_store to contain the keys ("lgb", "window") and ("lgb", "nowindow").
+    Needs shap_store to contain the keys (model, experiments[0]) and
+    (model, experiments[1]).
 
-    :param shap_store: dictionary populated by the train() function in the notebook.
-    :param top_k:      number of top features to analyze (ordered by no-window importance).
+    :param shap_store:  dictionary populated by the train() function in the notebook.
+    :param model:       the model family to compare, e.g. "lgb".
+    :param experiments: the two experiment tags, reference first.
+    :param top_k:       number of top features to analyze (ordered by the second
+                        experiment's importance).
     :return:           pandas DataFrame with columns:
                        Feature, Mean |SHAP| w., Mean |SHAP| w/o w., Diff.,
-                       wilcoxon_stat, wilcoxon_p_value, wilcoxon_p_corrected, Signif.
-                       (Signif. is based on the BH-corrected p-value, matching Table 5)
+                       wilcoxon_p_value, Signif. (Signif. is read on the raw p-value)
     """
-    d = _prepare_shap_comparison(shap_store, top_k)
+    d = _prepare_shap_comparison(shap_store, model, experiments, top_k)
 
-    sv_b      = d["sv_b"]
-    sv_n      = d["sv_n"]
+    sv_b = d["sv_b"]
+    sv_n = d["sv_n"]
     ranking_n = d["ranking_n"]
-    idx_base  = d["idx_base"]
-    idx_now   = d["idx_now"]
+    idx_base = d["idx_base"]
+    idx_now = d["idx_now"]
 
     results = []
 
@@ -308,32 +676,24 @@ def compute_wilcoxon_table(shap_store, top_k=20):
         abs_n = np.abs(x_n)
 
         try:
-            w_stat, w_p = wilcoxon(abs_b, abs_n, alternative="two-sided")
+            _, w_p = wilcoxon(abs_b, abs_n, alternative="two-sided")
         except ValueError:
-            w_stat, w_p = np.nan, 1.0
+            w_p = 1.0
 
-        results.append({
-            "Feature":            feat,
-            "Mean |SHAP| w.":     abs_b.mean(),
-            "Mean |SHAP| w/o w.": abs_n.mean(),
-            "Diff.":              abs_b.mean() - abs_n.mean(),
-            #"wilcoxon_stat":      w_stat,
-            "wilcoxon_p_value":   w_p,
-        })
+        results.append(
+            {
+                "Feature": feat,
+                "Mean |SHAP| w.": abs_b.mean(),
+                "Mean |SHAP| w/o w.": abs_n.mean(),
+                "Diff.": abs_b.mean() - abs_n.mean(),
+                "wilcoxon_p_value": w_p,
+            }
+        )
 
     df = pd.DataFrame(results)
 
-    # # FDR correction (Benjamini-Hochberg)
-    # df["wilcoxon_p_corrected"] = np.nan
-    # mask = df["wilcoxon_p_value"].notna()
-    # _, p_corrected, _, _ = multipletests(
-    #     df.loc[mask, "wilcoxon_p_value"].values,
-    #     method="fdr_bh",
-    #     alpha=0.05,
-    # )
-    # df.loc[mask, "wilcoxon_p_corrected"] = p_corrected
-
-    # Significance column based on the BH-corrected p-value (consistent with Table 5)
+    # Significance column, read on the raw p-value: the paper reports the test
+    # without correction for multiple testing.
     def _stars(p):
         if pd.isna(p):
             return ""
@@ -349,14 +709,13 @@ def compute_wilcoxon_table(shap_store, top_k=20):
 
 
 def get_probs(loader, model, device):
-
     """
     Computes the predicted probabilities and true labels for a given data loader, model, and device.
-    
+
     :param loader: A PyTorch DataLoader that provides batches of input features and target labels.
     :param model: A PyTorch model that will be used to make predictions on the input features.
     :param device: The device (e.g., 'cpu' or 'cuda') on which the model and data will be processed.
-    :return: A tuple containing two NumPy arrays: the predicted probabilities and the true labels. 
+    :return: A tuple containing two NumPy arrays: the predicted probabilities and the true labels.
     """
 
     all_probs, all_labels = [], []
@@ -369,131 +728,143 @@ def get_probs(loader, model, device):
             all_labels.extend(y_batch.numpy())
     return np.array(all_probs).flatten(), np.array(all_labels).flatten().astype(int)
 
+
 def _order_metrics(keys):
     """
     Reorder metric keys to the paper's column order:
-    AUC, F1 (test), Prec (test), Rec (test), Acc (test), Acc (train).
-    Matching is case-insensitive on substrings; unmatched keys are appended.
+    AUC, AP, AP lift, F1 (test), Prec (test), Rec (test), Acc (test), Acc (train).
+    AP and AP lift are matched exactly, the others case-insensitively on
+    substrings; unmatched keys are appended.
     """
+
     def _slot(k):
-        s = k.lower().replace("_", " ").replace("-", " ")
+        s = k.lower().replace("_", " ").replace("-", " ").strip()
         is_train = "train" in s
+        # Exact matches first: "ap" is a substring of too many names.
+        if s == "ap":
+            return 1
+        if s == "ap lift":
+            return 2
         if "auc" in s:
             return 0
-        if "f1" in s or "f_1" in s or s.strip() == "f1":
-            return 1
-        if "prec" in s:
-            return 2
-        if "rec" in s:                       # recall (not 'prec')
+        if "f1" in s or "f_1" in s or s == "f1":
             return 3
+        if "prec" in s:
+            return 4
+        if "rec" in s:  # recall (not 'prec')
+            return 5
         if "acc" in s:
-            return 5 if is_train else 4
+            return 7 if is_train else 6
         return 99
 
     return sorted(keys, key=lambda k: (_slot(k), k.lower()))
 
 
-def _order_metrics(keys):
+def _aggregate_runs(runs, metrics):
     """
-    Reorder metric keys to the paper's column order:
-    AUC, F1 (test), Prec (test), Rec (test), Acc (test), Acc (train).
-    Matching is case-insensitive on substrings; unmatched keys are appended.
+    Collapses the per-seed records of one (model, tag) cell into mean and
+    standard deviation for each metric.
+
+    The std is the sample one (ddof=1), not numpy's default population std: the
+    seeds are a sample of the runs the procedure could have produced, and the
+    reported bar is meant to support statements about whether a gap between two
+    models exceeds split-to-split noise. A single run has no spread to estimate,
+    so it reports 0.0 rather than NaN.
+
+    :param runs:    list of dicts, one per seed, as stored by the notebook.
+    :param metrics: metric keys to aggregate.
+    :return:        dict {metric: (mean, std)}.
     """
-    def _slot(k):
-        s = k.lower().replace("_", " ").replace("-", " ")
-        is_train = "train" in s
-        if "auc" in s:
-            return 0
-        if "f1" in s or "f_1" in s or s.strip() == "f1":
-            return 1
-        if "prec" in s:
-            return 2
-        if "rec" in s:                       # recall (not 'prec')
-            return 3
-        if "acc" in s:
-            return 5 if is_train else 4
-        return 99
-
-    return sorted(keys, key=lambda k: (_slot(k), k.lower()))
+    out = {}
+    for met in metrics:
+        values = np.asarray([float(r[met]) for r in runs], dtype=float)
+        std = float(values.std(ddof=1)) if len(values) > 1 else 0.0
+        out[met] = (float(values.mean()), std)
+    return out
 
 
-def _order_metrics(keys):
+def _order_models(models):
     """
-    Reorder metric keys to the paper's column order:
-    AUC, F1 (test), Prec (test), Rec (test), Acc (test), Acc (train).
-    Matching is case-insensitive on substrings; unmatched keys are appended.
+    Sorts model keys into the canonical paper order (lr, dt, rf, lgb, svm, mlp,
+    tabpfn); anything unrecognised is appended alphabetically.
     """
-    def _slot(k):
-        s = k.lower().replace("_", " ").replace("-", " ")
-        is_train = "train" in s
-        if "auc" in s:
-            return 0
-        if "f1" in s or "f_1" in s or s.strip() == "f1":
-            return 1
-        if "prec" in s:
-            return 2
-        if "rec" in s:                       # recall (not 'prec')
-            return 3
-        if "acc" in s:
-            return 5 if is_train else 4
-        return 99
+    _priority = ["lr", "dt", "rf", "lgb", "svm", "mlp", "tabpfn"]
 
-    return sorted(keys, key=lambda k: (_slot(k), k.lower()))
+    def _rank(m):
+        ml = m.lower()
+        for i, p in enumerate(_priority):
+            if ml.startswith(p):
+                return (i, ml)
+        return (len(_priority), ml)
+
+    return sorted(models, key=_rank)
 
 
-def compare_metrics(metrics_store, tag_a, tag_b,
-                    metric_order=None, model_order=None,
-                    latex=False):
+def compare_metrics(
+    metrics_store,
+    tag_a,
+    tag_b,
+    metric_order=None,
+    model_order=None,
+    latex=False,
+    decimals=3,
+    label_b="w/ leakage",
+):
     """
     Builds a per-model comparison table between two experiments, formatted to
     match Table 4 of the paper (tab:ablation_window).
 
-    Layout: for each model, a baseline row (tag_a) followed by a "w/o window"
-    row (tag_b) showing 'value(+x.x%)' with the relative change. Metrics are in
-    columns (AUC, F1, Prec., Rec., Acc.test, Acc.train), not in rows.
+    Every cell is reported as 'mean ± std' across the evaluation seeds, so the
+    table answers the reviewer's objection that a gap between two models could
+    be split-to-split noise. Layout: for each model, a baseline row (tag_a)
+    followed by a "w/ leakage" row (tag_b) that also carries the relative change
+    of the means. Metrics are in columns (AUC, AP, AP lift, F1, Prec., Rec.,
+    Acc.test, Acc.train), not in rows.
 
-    :param metrics_store: dict {(model_type, tag): {metric_name: value}}
-    :param tag_a:         reference experiment tag (e.g. "window")
-    :param tag_b:         experiment to compare against tag_a (e.g. "nowindow")
+    AP, precision and F1 depend on the prevalence of the positive class, which
+    moves with the definition of the target. AP lift divides AP by that
+    prevalence, the AP of a random classifier; its ceiling, 1 / prevalence,
+    still moves with it, so AUC remains the first column to read across two
+    targets.
+
+    :param metrics_store: dict {(model_type, tag): [ {metric: value, 'seed': s}, ... ]},
+                          one entry per seed, as accumulated by the notebook.
+    :param tag_a:         reference experiment tag (e.g. "controlled")
+    :param tag_b:         experiment to compare against tag_a (e.g. "leakboth")
     :param metric_order:  optional list of metric keys to fix column order.
                           Defaults to the order found in the first model entry.
     :param model_order:   optional list of model keys to fix row order.
-                          Defaults to sorted order.
-    :param latex:         if True, the tag_b cells include LaTeX colour markup
-                          (\textcolor{green!60!black}{...} / red) matching the
-                          paper; if False, a plain '(+x.x%)' string is used.
-    :return:              pandas DataFrame indexed by row label, one column per
-                          metric. Baseline rows hold rounded values; w/o-window
-                          rows hold the formatted 'value(±x.x%)' strings.
+                          Defaults to the paper order.
+    :param latex:         if True, cells use LaTeX markup ('$0.800 \\pm 0.005$' and
+                          \\textcolor{green!60!black}{...} / red for the change);
+                          if False, a plain '0.800 ± 0.005 (+x.x%)' string is used.
+    :param label_b:       suffix naming the tag_b row ("rf w/ leakage"). The
+                          default matches Table 4; the 2x2 leakage tables pass
+                          the leak being isolated instead.
+    :param decimals:      digits shown for mean and std. Defaults to 3, not the
+                          2 the earlier single-run table used: the std of AUC
+                          across seeds is around 0.005, which two decimals
+                          collapse to '± 0.00', a bar that reads as zero
+                          variance rather than small variance.
+    :return:              pandas DataFrame with a 'Model' column and one column
+                          per metric.
     """
     pairs = {m for (m, t) in metrics_store.keys() if t in (tag_a, tag_b)}
+    models = model_order if model_order is not None else _order_models(pairs)
 
-    if model_order is not None:
-        models = model_order
-    else:
-        # canonical paper order: lr, dt, rf, lgb, mlp; anything else appended
-        _priority = ["lr", "dt", "rf", "lgb", "mlp"]
+    def _fmt_value(mean, std):
+        if latex:
+            return f"${mean:.{decimals}f} \\pm {std:.{decimals}f}$"
+        return f"{mean:.{decimals}f} ± {std:.{decimals}f}"
 
-        def _rank(m):
-            ml = m.lower()
-            for i, p in enumerate(_priority):
-                if ml.startswith(p):
-                    return (i, ml)
-            return (len(_priority), ml)
-
-        models = sorted(pairs, key=_rank)
-
-    # nice column header per metric
-    label_b = "w/o window"
-
-    def _fmt_pct(diff, va):
+    def _fmt_pct(mean_a, mean_b):
+        va, vb = round(mean_a, decimals), round(mean_b, decimals)
         if va == 0:
             return ""
-        pct = diff / va * 100.0
+        pct = (vb - va) / va * 100.0
         sign = "+" if pct >= 0 else "-"
-        body = f"({sign}{abs(pct):.1f}\\%)" if latex else f"({sign}{abs(pct):.1f}%)"
         if not latex:
-            return body
+            return f"({sign}{abs(pct):.1f}%)"
         colour = "green!60!black" if pct >= 0 else "red"
         return f"(\\textcolor{{{colour}}}{{${sign}{abs(pct):.1f}\\%$}})"
 
@@ -504,29 +875,32 @@ def compare_metrics(metrics_store, tag_a, tag_b,
         key_a, key_b = (m, tag_a), (m, tag_b)
         if key_a not in metrics_store or key_b not in metrics_store:
             missing = tag_a if key_a not in metrics_store else tag_b
-            print(f"⚠️  Skipping model '{m}': missing entry for {missing}.")
+            print(f"Skipping model '{m}': missing entry for {missing}.")
             continue
 
-        a, b = metrics_store[key_a], metrics_store[key_b]
+        runs_a, runs_b = metrics_store[key_a], metrics_store[key_b]
+        if len(runs_a) != len(runs_b):
+            print(
+                f"Model '{m}': {len(runs_a)} seed(s) for '{tag_a}' but "
+                f"{len(runs_b)} for '{tag_b}'; the two rows average over "
+                f"different numbers of runs."
+            )
+
         if metric_order is not None:
             metrics = metric_order
         else:
-            drop = {"F1_train", "F1_val", "average_precision"}
-            metrics = _order_metrics([k for k in a.keys() if k not in drop])
+            drop = {"F1_train", "F1_val", "prevalence", "seed"}
+            metrics = _order_metrics([k for k in runs_a[0].keys() if k not in drop])
         if cols is None:
             cols = metrics
 
-        # baseline row (values rounded to 2 decimals, as displayed)
-        rows[m] = {met: f"{round(float(a[met]), 2):.2f}" for met in metrics}
+        agg_a = _aggregate_runs(runs_a, metrics)
+        agg_b = _aggregate_runs(runs_b, metrics)
 
-        # w/o window row
-        row_b = {}
-        for met in metrics:
-            va = round(float(a[met]), 2)
-            vb = round(float(b[met]), 2)
-            diff = vb - va
-            row_b[met] = f"{vb:.2f}{_fmt_pct(diff, va)}"
-        rows[f"{m} {label_b}"] = row_b
+        rows[m] = {met: _fmt_value(*agg_a[met]) for met in metrics}
+        rows[f"{m} {label_b}"] = {
+            met: _fmt_value(*agg_b[met]) + _fmt_pct(agg_a[met][0], agg_b[met][0]) for met in metrics
+        }
 
     # preserve baseline/w-o ordering
     ordered_index = []
@@ -539,6 +913,78 @@ def compare_metrics(metrics_store, tag_a, tag_b,
     df = df.loc[ordered_index]
     # expose the model label as an explicit first column (as in Table 4),
     # not just as the index
+    df.insert(0, "Model", df.index)
+    df = df.reset_index(drop=True)
+    return df
+
+
+def summarize_metrics(
+    metrics_store, tag, metric_order=None, model_order=None, latex=False, decimals=3
+):
+    """
+    Builds the result table of a single experiment: one row per model, every
+    cell the 'mean ± std' across that model's evaluation seeds.
+
+    It is the single-experiment counterpart of compare_metrics: same columns
+    (AUC, AP, AP lift, F1, Prec., Rec., Acc.test, Acc.train), same aggregation and same
+    sample std (ddof=1), but no second tag and no percent change, it answers
+    "how did the models do in the run that just finished", not "what changed
+    between two experiments".
+
+    :param metrics_store: dict {(model_type, tag): [ {metric: value, 'seed': s}, ... ]},
+                          one entry per seed, as accumulated by the notebook.
+    :param tag:           experiment to report (e.g. "controlled", "leakboth").
+    :param metric_order:  optional list of metric keys to fix column order.
+                          Defaults to the paper order.
+    :param model_order:   optional list of model keys to fix row order.
+                          Defaults to the paper order.
+    :param latex:         if True, cells use LaTeX markup ('$0.800 \\pm 0.005$');
+                          if False, a plain '0.800 ± 0.005' string is used.
+    :param decimals:      digits shown for mean and std. Defaults to 3, for the
+                          same reason as in compare_metrics: the std of AUC
+                          across seeds is around 0.005, which two decimals
+                          collapse to '± 0.00'.
+    :return:              pandas DataFrame with 'Model', 'Seeds' and one column
+                          per metric.
+    """
+    present = {m for (m, t) in metrics_store.keys() if t == tag}
+    if not present:
+        raise KeyError(
+            f"metrics_store has no entry for tag '{tag}'. "
+            f"Available tags: {sorted({t for (_, t) in metrics_store})}"
+        )
+
+    models = model_order if model_order is not None else _order_models(present)
+
+    def _fmt_value(mean, std):
+        if latex:
+            return f"${mean:.{decimals}f} \\pm {std:.{decimals}f}$"
+        return f"{mean:.{decimals}f} ± {std:.{decimals}f}"
+
+    rows = {}
+    cols = None
+
+    for m in models:
+        runs = metrics_store.get((m, tag))
+        if not runs:
+            print(f"Skipping model '{m}': no run for '{tag}'.")
+            continue
+
+        if metric_order is not None:
+            metrics = metric_order
+        else:
+            drop = {"F1_train", "F1_val", "prevalence", "seed"}
+            metrics = _order_metrics([k for k in runs[0].keys() if k not in drop])
+        if cols is None:
+            cols = metrics
+
+        agg = _aggregate_runs(runs, metrics)
+        # The seed count is part of the result: a '± 0.000' cell means one run,
+        # not a model that is insensitive to the split.
+        rows[m] = {"Seeds": len(runs), **{met: _fmt_value(*agg[met]) for met in metrics}}
+
+    df = pd.DataFrame.from_dict(rows, orient="index", columns=["Seeds"] + list(cols or []))
+    df = df.loc[[m for m in models if m in rows]]
     df.insert(0, "Model", df.index)
     df = df.reset_index(drop=True)
     return df

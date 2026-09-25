@@ -1,0 +1,10 @@
+PersonID,FullName,Gender,CurrentPositionsCount,CurrentBoardSeatsCount,CurrentAdvisoryRolesCount,NumberOfAffiliatedFunds,FormerPositionsCount,FormerBoardSeatsCount,FormerAdvisoryRolesCount,AffiliatedDealsCount
+P1,Anna Rossi,Female,1,1,0,0,1,0,0,1
+P2,Marco Bianchi,Male,1,0,0,0,1,0,0,0
+P3,Chiara Verdi,Female,1,0,0,0,0,0,0,0
+P4,Luca Neri Ph.D,Male,0,1,1,0,0,0,0,0
+P5,Sara Gallo,Female,1,0,0,0,0,0,0,0
+P6,Paolo Conti,Male,1,0,0,0,1,0,0,0
+P7,Elena Ferri,Female,1,0,1,0,0,1,0,0
+P8,Davide Mori,Male,0,0,0,1,1,0,0,0
+P9,Kim Park,,1,0,0,0,0,0,0,0

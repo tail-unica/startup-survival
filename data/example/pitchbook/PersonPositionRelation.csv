@@ -1,0 +1,13 @@
+PersonID,EntityID,StartDate,PositionLevel,IsCurrent
+P1,01,,Founder,Yes
+P1,10,05/01/2008,Manager,No
+P2,01,07/01/2016,Chief Technology Officer,Yes
+P2,05,01/01/2013,Advisor,No
+P3,01,,Chief Financial Officer,Yes
+P5,02,,Founder,Yes
+P6,04,01/01/2015,Founder,Yes
+P6,13,,Advisor,No
+P6,02,01/01/2014,Chief Executive Officer,Yes
+P7,05,,Founder,Yes
+P8,03,01/01/2014,Founder,No
+P9,03,01/01/2015,Head of Operations,Yes

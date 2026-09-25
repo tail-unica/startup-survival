@@ -1,0 +1,7 @@
+CompanyID,SimilarCompanyID,SimilarityScore,IsCompetitor,SimilarCompanyHQCountry
+01,08,90,Yes,Italy
+01,09,70,Yes,Germany
+01,12,60,Yes,Italy
+01,10,40,No,Italy
+03,08,55,Yes,Italy
+07,12,80,Yes,Portugal
