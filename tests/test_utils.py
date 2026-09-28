@@ -3,8 +3,10 @@ import pandas as pd
 import pytest
 
 from src.utils import (
+    THRESHOLD_METRICS,
     clear_split_cache,
     compare_metrics,
+    f1_optimal_threshold,
     get_split,
     prepare_splits,
     summarize_metrics,
@@ -169,6 +171,32 @@ def test_unknown_tag_raises_instead_of_returning_an_empty_table():
 
     with pytest.raises(KeyError, match="noteam"):
         summarize_metrics(store, "noteam")
+
+
+# --- threshold tuned on validation ------------------------------------------
+
+
+def test_f1_optimal_threshold_picks_the_cut_that_separates_the_classes():
+    """0.5 would call every row negative; the tuned cut recovers all positives."""
+    labels = np.array([0, 0, 0, 0, 1, 1])
+    probs = np.array([0.05, 0.10, 0.15, 0.20, 0.30, 0.40])
+
+    assert f1_optimal_threshold(labels, probs) == pytest.approx(0.30)
+
+
+def test_tuned_metrics_stay_out_of_the_main_table_and_fill_the_threshold_one():
+    runs = [
+        {**r, "F1_tuned": 0.7, "precision_tuned": 0.6, "recall_tuned": 0.8, "threshold": 0.3}
+        for r in _runs([0.80, 0.82])
+    ]
+    store = {("rf", "controlled"): runs}
+
+    main = summarize_metrics(store, "controlled")
+    tuned = summarize_metrics(store, "controlled", metric_order=THRESHOLD_METRICS)
+
+    assert not {"F1_tuned", "precision_tuned", "recall_tuned", "threshold"} & set(main.columns)
+    assert list(tuned.columns) == ["Model", "Seeds", *THRESHOLD_METRICS]
+    assert tuned["threshold"][0] == "0.300 ± 0.000"
 
 
 def test_two_targets_stratified_on_the_same_labels_share_the_split(toy_frame):

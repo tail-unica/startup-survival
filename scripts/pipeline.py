@@ -188,7 +188,7 @@ def cmd_experiments(args: argparse.Namespace) -> int:
     """
     from src.experiments import SETTINGS, load_setting, split_strata
     from src.training import make_train, run_grid
-    from src.utils import summarize_metrics
+    from src.utils import THRESHOLD_METRICS, summarize_metrics
 
     _, extraction = paths_for(args)
     config = with_dataset_paths(load_config(), extraction)
@@ -233,6 +233,8 @@ def cmd_experiments(args: argparse.Namespace) -> int:
     for setting in settings:
         print(f"\n{setting}")
         print(summarize_metrics(metrics_store, setting))
+        print(f"\n{setting}: threshold 0.5 vs tuned on validation")
+        print(summarize_metrics(metrics_store, setting, metric_order=THRESHOLD_METRICS))
     return 0
 
 
