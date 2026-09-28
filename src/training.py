@@ -29,7 +29,7 @@ from sklearn.metrics import (
 
 from src.experiments import grid_runs
 from src.models import build
-from src.utils import get_split, save_figure, set_seed
+from src.utils import f1_optimal_threshold, get_split, save_figure, set_seed
 
 
 def _roc_figure(labels, probs, model_type):
@@ -119,7 +119,7 @@ def run_once(
     model.fit(X_train, y_train, X_val, y_val)
 
     _, preds_train = model.score(X_train)
-    _, preds_val = model.score(X_val)
+    probs_val, preds_val = model.score(X_val)
     probs_test, preds_test = model.score(X_test)
 
     metrics = {
@@ -141,6 +141,16 @@ def run_once(
     prevalence = float(np.mean(y_test))
     metrics["AP_lift"] = ap / prevalence if prevalence > 0 else float("nan")
     metrics["prevalence"] = prevalence
+
+    # The same test rows, decided at the cut that maximises F1 on the validation
+    # set instead of at 0.5: the answer to whether the class weighting already
+    # moves the decision where it should. 
+    threshold = f1_optimal_threshold(y_val, probs_val)
+    preds_tuned = (probs_test >= threshold).astype(int)
+    metrics["F1_tuned"] = f1_score(y_test, preds_tuned, zero_division=0)
+    metrics["precision_tuned"] = precision_score(y_test, preds_tuned, zero_division=0)
+    metrics["recall_tuned"] = recall_score(y_test, preds_tuned, zero_division=0)
+    metrics["threshold"] = threshold
 
     if use_wandb:
         wandb.log({**metrics, "roc_curve": wandb.Image(fig_roc), "pr_curve": wandb.Image(fig_pr)})

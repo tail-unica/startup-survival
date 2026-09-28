@@ -14,6 +14,7 @@ from matplotlib import pyplot as plt
 from matplotlib.patches import Patch
 from scipy.stats import wilcoxon
 from sklearn.impute import KNNImputer
+from sklearn.metrics import precision_recall_curve
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
 
@@ -729,6 +730,50 @@ def get_probs(loader, model, device):
     return np.array(all_probs).flatten(), np.array(all_labels).flatten().astype(int)
 
 
+# F1, precision and recall at p >= 0.5 and at the threshold tuned on the
+# validation set, plus that threshold: the columns of the supplementary table,
+# summarize_metrics(store, tag, metric_order=THRESHOLD_METRICS).
+THRESHOLD_METRICS = [
+    "F1",
+    "precision",
+    "recall",
+    "F1_tuned",
+    "precision_tuned",
+    "recall_tuned",
+    "threshold",
+]
+_NOT_IN_MAIN_TABLES = {
+    "F1_train",
+    "F1_val",
+    "prevalence",
+    "seed",
+    "F1_tuned",
+    "precision_tuned",
+    "recall_tuned",
+    "threshold",
+}
+
+
+def f1_optimal_threshold(labels, probs):
+    """
+    The probability cut that maximises F1 on the given rows, deciding at p >= cut.
+
+    Meant for the validation set: tuned on the test set it would report the best
+    F1 the test rows allow, not what the rule achieves on unseen firms. On ties
+    the lowest cut wins.
+
+    :param labels: True labels.
+    :param probs:  Probabilities of the positive class.
+    :return:       The threshold, as a float.
+    """
+    precision, recall, thresholds = precision_recall_curve(labels, probs)
+    # The last point of the curve (recall 0, precision 1) has no threshold.
+    precision, recall = precision[:-1], recall[:-1]
+    denom = precision + recall
+    f1 = np.divide(2 * precision * recall, denom, out=np.zeros_like(denom), where=denom > 0)
+    return float(thresholds[np.argmax(f1)])
+
+
 def _order_metrics(keys):
     """
     Reorder metric keys to the paper's column order:
@@ -889,7 +934,7 @@ def compare_metrics(
         if metric_order is not None:
             metrics = metric_order
         else:
-            drop = {"F1_train", "F1_val", "prevalence", "seed"}
+            drop = _NOT_IN_MAIN_TABLES
             metrics = _order_metrics([k for k in runs_a[0].keys() if k not in drop])
         if cols is None:
             cols = metrics
@@ -973,7 +1018,7 @@ def summarize_metrics(
         if metric_order is not None:
             metrics = metric_order
         else:
-            drop = {"F1_train", "F1_val", "prevalence", "seed"}
+            drop = _NOT_IN_MAIN_TABLES
             metrics = _order_metrics([k for k in runs[0].keys() if k not in drop])
         if cols is None:
             cols = metrics
