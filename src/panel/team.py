@@ -2,9 +2,9 @@
 
 Each person is expanded over every year of their window, the attributes of that
 year are attached, and the rows are collapsed back to one per (company, year).
-Thirteen aggregates come out: how many people, the share of women, the eight
-flags on fields of study, the mean graduation year, the mean degree, the
-institutes, the mean experience index and how many founders.
+Fourteen aggregates come out: how many people, the share of women, the eight
+flags on fields of study, the mean graduation year, the mean degree,
+the mean experience index and how many founders.
 """
 
 from __future__ import annotations
@@ -84,8 +84,7 @@ def attach_person_attributes(
         expanded.with_row_index("_row")
         .with_columns((pl.col("YearFounded") + pl.col("Years")).alias("_year"))
         # The as-of joins need the frame sorted by year; _row puts the original
-        # order back afterwards, because that order decides how the institutes are
-        # concatenated in the aggregate.
+        # order back afterwards, so the aggregates do not depend on the sort.
         .sort("_year")
         .pipe(
             lambda d: (
@@ -214,21 +213,19 @@ def experience_index(
 
 
 def aggregate_team(expanded: pl.DataFrame, rules: PanelRules) -> pl.DataFrame:
-    """Collapse the people of a company-year into the fifteen team columns.
+    """Collapse the people of a company-year into the fourteen team columns.
 
     Two of the aggregates carry a decision. The denominator of the share of women
     is the people whose gender is known: keeping the others in it would lower the
     share precisely in the companies that are documented worst, and where nobody's
-    gender is known the column stays empty. The institutes are concatenated
-    dropping the missing ones, so the string never carries a placeholder.
+    gender is known the column stays empty.
 
     :param expanded: Output of :func:`experience_index`.
     :param rules: Domain rules; the field-of-study flags are read.
     :return: One row per (company, year).
     """
-    institute = pl.col("Institute").drop_nulls()
     known_gender = pl.col("Gender").is_not_null().sum()
-    team = expanded.group_by(["CompanyID", "Years"]).agg(
+    return expanded.group_by(["CompanyID", "Years"]).agg(
         pl.len().alias("Total_People"),
         pl.when(known_gender > 0)
         .then(pl.col("Gender").eq("Female").sum() / known_gender * 100)
@@ -238,17 +235,9 @@ def aggregate_team(expanded: pl.DataFrame, rules: PanelRules) -> pl.DataFrame:
         *[pl.col(c).fill_null(False).any().alias(c) for c in rules.field_flags],
         pl.col("Earliest_Year").mean().alias("Avg_Earliest_Year"),
         pl.col("Highest_Degree").mean().alias("Highest_Degree_Mean"),
-        institute.unique(maintain_order=True).str.join("; ").alias("Institute"),
         pl.col("WorkExperienceIndex").mean().alias("WorkExp_Idx_Mean"),
         # sum() over booleans counts the true ones and ignores the nulls.
         pl.col("IsFounder").sum().alias("Total_Founders"),
-    )
-    # With nobody carrying an institute the join of strings returns an empty one.
-    return team.with_columns(
-        pl.when(pl.col("Institute") == "")
-        .then(None)
-        .otherwise(pl.col("Institute"))
-        .alias("Institute")
     )
 
 

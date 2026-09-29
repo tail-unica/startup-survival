@@ -8,7 +8,6 @@ paths:
   panel_snapshot: "data/interim/panel_snapshot.csv.gz"
   dataset_controlled: "data/processed/dataset_controlled.csv"
   dataset_leakboth: "data/processed/dataset_leakboth.csv"
-  raw_university_ranking: "data/raw/QS_World_Rankings.csv"
 
 
 first_year: 2000 # filters the founding year: which firms enter the panel
@@ -184,7 +183,6 @@ panel:
     - Is_Med
     - Is_Law
     - Is_IT
-    - Institute
     - WorkExp_Idx_Mean
     - Total_Founders
     - Is_Debt
@@ -395,7 +393,6 @@ ablations:
     - Total_Founders
     - Percent_Females
     - Avg_Earliest_Year
-    - HasTop50Institute
     - Is_Eco
     - Is_Eng
     - Is_NS

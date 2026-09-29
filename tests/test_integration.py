@@ -52,9 +52,9 @@ def test_every_panel_column_reaches_the_datasets():
 
 def test_the_ablations_name_columns_the_datasets_carry():
     # The ablation lists are applied to the processed dataset, so a name the
-    # missing-value threshold has dropped would raise mid-experiment. Two panel
-    # columns are renamed on the way there, and those are the two exceptions.
-    renamed = {"HasTop50Institute", "Gender_CEO_Female"}
+    # missing-value threshold has dropped would raise mid-experiment. One panel
+    # column is renamed on the way there, and that is the exception.
+    renamed = {"Gender_CEO_Female"}
     available = set(FEATURE_COLUMNS) | renamed
     for name, columns in CONFIG["ablations"].items():
         unknown = [c for c in columns if c not in available]

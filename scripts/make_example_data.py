@@ -136,19 +136,19 @@ BOARD = [
 ]
 
 # The education
-EDUCATION_COLS = ["PersonID", "Degree", "Major_Concentration", "GraduatingYear", "Institute"]
+EDUCATION_COLS = ["PersonID", "Degree", "Major_Concentration", "GraduatingYear"]
 EDUCATION = [
-    ["P1", "MSc", "Computer Science", "2010", "Politecnico di Milano"],
-    ["P1", "MBA", "Business Administration", "2016", "Massachusetts Institute of Technology"],
-    ["P2", "BSc", "Electrical Engineering", "2012", "Universita di Bologna"],
-    ["P3", "Master", "Finance", "2011", "Bocconi"],
-    ["P4", "PhD", "Robotics", "2009", "ETH Zurich"],
-    ["P5", "Bachelor", "Biology", "2013", "Universita di Padova"],
-    ["P5", "PhD", "Immunology", "2017", "Universita di Padova"],
-    ["P6", "MBA", "Management", "", "INSEAD"],
-    ["P7", "Master", "Law", "2005", "Universita di Roma"],
-    ["P8", "MSc", "Data Science", "2013", "Universita di Cagliari"],
-    ["P9", "Diploma", "", "2012", ""],
+    ["P1", "MSc", "Computer Science", "2010"],
+    ["P1", "MBA", "Business Administration", "2016"],
+    ["P2", "BSc", "Electrical Engineering", "2012"],
+    ["P3", "Master", "Finance", "2011"],
+    ["P4", "PhD", "Robotics", "2009"],
+    ["P5", "Bachelor", "Biology", "2013"],
+    ["P5", "PhD", "Immunology", "2017"],
+    ["P6", "MBA", "Management", ""],
+    ["P7", "Master", "Law", "2005"],
+    ["P8", "MSc", "Data Science", "2013"],
+    ["P9", "Diploma", "", "2012"],
 ]
 
 # The experience: one role per row
