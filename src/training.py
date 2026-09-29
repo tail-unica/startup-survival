@@ -29,7 +29,13 @@ from sklearn.metrics import (
 
 from src.experiments import grid_runs
 from src.models import build
-from src.utils import f1_optimal_threshold, get_split, save_figure, set_seed
+from src.utils import (
+    f1_optimal_threshold,
+    get_split,
+    save_figure,
+    save_predictions,
+    set_seed,
+)
 
 
 def _roc_figure(labels, probs, model_type):
@@ -144,7 +150,7 @@ def run_once(
 
     # The same test rows, decided at the cut that maximises F1 on the validation
     # set instead of at 0.5: the answer to whether the class weighting already
-    # moves the decision where it should. 
+    # moves the decision where it should.
     threshold = f1_optimal_threshold(y_val, probs_val)
     preds_tuned = (probs_test >= threshold).astype(int)
     metrics["F1_tuned"] = f1_score(y_test, preds_tuned, zero_division=0)
@@ -163,6 +169,8 @@ def run_once(
         f"AP lift: {metrics['AP_lift']:.3f} (prevalence {prevalence:.3f})"
     )
     print(classification_report(y_test, preds_test))
+
+    save_predictions(split, probs_val, probs_test, model_type, tag, seed, config)
 
     # Persist the metrics for the later cross-experiment comparison, in parallel
     # with the SHAP store.

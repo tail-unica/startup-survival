@@ -432,6 +432,9 @@ shap_permutation:
     n_background: 8
 
 
+predictions:
+  dir: "results/predictions" # validation and test probabilities of every run, one .npz per model, experiment and seed
+
 figures:
   dir: "img/shap" #path to save the SHAP figures
   shap_comparison: # define the model and experiments to compare in the SHAP comparison plot

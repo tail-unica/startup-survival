@@ -8,6 +8,9 @@ img/
 # Temporary files, and the split cache
 tmp/
 
+# Predicted probabilities of the runs: real data, never committed
+results/
+
 __pycache__/
 *.pyc
 *.pyo

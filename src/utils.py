@@ -360,6 +360,39 @@ def save_figure(fig, name, config, dpi=200):
     return path
 
 
+def save_predictions(split, probs_val, probs_test, model_type, tag, seed, config):
+    """Write one run's validation and test probabilities under ``config['predictions']['dir']``.
+
+    With them, a new threshold, metric or confidence interval is a computation on
+    this file instead of a retraining of every model on every seed. Next to each
+    probability go its label and its row in the dataset the experiment read, so
+    the firm behind a row can be looked up again. One file per (model,
+    experiment, seed): a re-run overwrites its own file and nothing else.
+
+    :param split:      the split dict of the run, for the labels and their rows.
+    :param probs_val:  probabilities of the positive class on the validation set.
+    :param probs_test: the same on the test set.
+    :param model_type: model family, part of the file name.
+    :param tag:        experiment, part of the file name.
+    :param seed:       seed of the run, part of the file name.
+    :param config:     the parsed ``config.yaml``.
+    :return:           the path written, as a ``Path``.
+    """
+    directory = Path(config["predictions"]["dir"])
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"predictions_{model_type}_{tag or 'untagged'}_seed{seed}.npz"
+    np.savez_compressed(
+        path,
+        prob_val=np.asarray(probs_val, dtype=float),
+        y_val=np.asarray(split["y_val"]),
+        row_val=split["y_val"].index.to_numpy(),
+        prob_test=np.asarray(probs_test, dtype=float),
+        y_test=np.asarray(split["y_test"]),
+        row_test=split["y_test"].index.to_numpy(),
+    )
+    return path
+
+
 def _prepare_shap_comparison(
     shap_store, model="lgb", experiments=("controlled", "leakboth"), top_k=20
 ):

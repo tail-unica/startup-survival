@@ -9,6 +9,7 @@ from src.utils import (
     f1_optimal_threshold,
     get_split,
     prepare_splits,
+    save_predictions,
     summarize_metrics,
 )
 
@@ -197,6 +198,23 @@ def test_tuned_metrics_stay_out_of_the_main_table_and_fill_the_threshold_one():
     assert not {"F1_tuned", "precision_tuned", "recall_tuned", "threshold"} & set(main.columns)
     assert list(tuned.columns) == ["Model", "Seeds", *THRESHOLD_METRICS]
     assert tuned["threshold"][0] == "0.300 ± 0.000"
+
+
+def test_saved_predictions_keep_labels_and_dataset_rows_aligned(tmp_path):
+    """A later analysis must be able to recompute a metric and find the firm of each row."""
+    y_val = pd.Series([0, 1], index=[7, 3])
+    y_test = pd.Series([1, 0, 0], index=[5, 1, 9])
+    split = {"y_val": y_val, "y_test": y_test}
+    config = {"predictions": {"dir": str(tmp_path)}}
+
+    path = save_predictions(split, [0.2, 0.9], [0.8, 0.1, 0.3], "rf", "controlled", 2, config)
+    saved = np.load(path)
+
+    assert path.name == "predictions_rf_controlled_seed2.npz"
+    np.testing.assert_array_equal(saved["y_test"], [1, 0, 0])
+    np.testing.assert_array_equal(saved["row_test"], [5, 1, 9])
+    np.testing.assert_allclose(saved["prob_val"], [0.2, 0.9])
+    np.testing.assert_array_equal(saved["row_val"], [7, 3])
 
 
 def test_two_targets_stratified_on_the_same_labels_share_the_split(toy_frame):
