@@ -316,18 +316,6 @@ def test_the_no_window_dataset_keeps_every_column_so_the_two_stay_comparable():
 # preprocess_dataset
 
 
-@pytest.fixture
-def ranking(tmp_path):
-    """A QS ranking file with one top university."""
-    path = tmp_path / "qs.csv"
-    path.write_text(
-        "University,Year,Overall Score\n"
-        "Massachusetts Institute of Technology (MIT),2024,100\n"
-        "Universita di Cagliari,2024,20\n"  # in the file, so also in its top 50
-    )
-    return str(path)
-
-
 def _full_dataset(n=60, **override):
     """A dataset carrying every column ``preprocess_dataset`` selects.
 
@@ -344,11 +332,6 @@ def _full_dataset(n=60, **override):
         {
             "CompanyID": list(range(n)),
             "Target": cycle(["Later", "Exit", "Early", "Out"]),
-            # The first half names a ranked university, the second one an
-            # institute sharing no word with any of them: a fixture with two
-            # ranked names would have both inside its own top 50.
-            "Institute": ["Massachusetts Institute of Technology; Altro"] * (n // 2)
-            + ["Politecnico Zurigo"] * (n - n // 2),
             "Gender_CEO": cycle(["Female", "Male", None]),
             "HQCountry": ["USA"] * n,
             "PrimaryIndustrySector": ["Software"] * n,
@@ -361,8 +344,8 @@ def _full_dataset(n=60, **override):
     return pl.DataFrame(rows)
 
 
-def test_the_target_becomes_one_for_later_and_exit_and_zero_otherwise(ranking):
-    out = preprocess_dataset(_full_dataset(), ranking)
+def test_the_target_becomes_one_for_later_and_exit_and_zero_otherwise():
+    out = preprocess_dataset(_full_dataset())
     expected = {"Later": 1, "Exit": 1, "Early": 0, "Out": 0}
     original = _full_dataset()
     pairs = dict(zip(original["CompanyID"].to_list(), original["Target"].to_list(), strict=True))
@@ -370,39 +353,16 @@ def test_the_target_becomes_one_for_later_and_exit_and_zero_otherwise(ranking):
         assert target == expected[pairs[cid]]
 
 
-def test_the_institute_list_becomes_a_single_top_fifty_flag(ranking):
-    out = preprocess_dataset(_full_dataset(), ranking)
-    assert "Institute" not in out.columns
-    # handle_missing_values casts the booleans to 0/1 before the models see them.
-    assert out["HasTop50Institute"].to_list()[0] == 1
-    assert out["HasTop50Institute"].to_list()[-1] == 0
-
-
-def test_an_institute_sharing_half_its_words_with_a_ranked_one_counts_as_top_fifty(ranking):
-    # Documented on purpose, because it is loose: the match is a word overlap of
-    # 0.5, so "Universita di Sassari" passes for "Universita di Cagliari" once
-    # the latter is in the ranking. Two words in common out of four are enough.
-    dataset = _full_dataset(n=4, Institute=["Universita di Sassari"] * 4)
-    out = preprocess_dataset(dataset, ranking)
-    assert out["HasTop50Institute"].to_list() == [1, 1, 1, 1]
-
-
-def test_an_empty_institute_list_is_not_a_top_fifty(ranking):
-    dataset = _full_dataset(n=4, Institute=[None, "", "Ignota", "Altro Ateneo"])
-    out = preprocess_dataset(dataset, ranking)
-    assert out["HasTop50Institute"].to_list() == [0, 0, 0, 0]
-
-
-def test_the_ceo_gender_becomes_one_indicator_column(ranking):
-    out = preprocess_dataset(_full_dataset(), ranking)
+def test_the_ceo_gender_becomes_one_indicator_column():
+    out = preprocess_dataset(_full_dataset())
     assert "Gender_CEO_Female" in out.columns
     assert "Gender_CEO_Male" not in out.columns
     assert "Gender_CEO_null" not in out.columns
 
 
-def test_the_categories_that_are_frequency_encoded_per_split_stay_raw(ranking):
+def test_the_categories_that_are_frequency_encoded_per_split_stay_raw():
     # Encoding them here would fit on the whole dataset, before the split, and
     # let a held-out row contribute to its own encoding.
-    out = preprocess_dataset(_full_dataset(), ranking)
+    out = preprocess_dataset(_full_dataset())
     assert out["HQCountry"].dtype == pl.String
     assert out["PrimaryIndustrySector"].dtype == pl.String

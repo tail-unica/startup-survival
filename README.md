@@ -67,14 +67,13 @@ release the following:
 | File | Content | Status |
 |------|---------|--------|
 | `data/example/pitchbook/` | **A synthetic extraction.** Fourteen invented tables in the shape PitchBook delivers, carrying only the columns the pipeline reads and a cast of eight companies chosen so that every branch of the panel construction fires at least once. `scripts/make_example_data.py` writes them and documents each company's story. | Released |
-| `data/example/panel_timed.csv` | **The timed panel those tables produce**, 79 rows by 52 columns: every attribute is the one of the row's own year, so a firm's team, investors and competitors are the ones it had at that age. It is the example of the real thing, and the schema the notebook checks itself against. The values do **not** correspond to any real company. | Released |
-| `data/example/panel_snapshot.csv` | **The snapshot panel of the same tables**, the same 79 rows by 52 columns with the temporization switches off: every attribute is the one declared at extraction time, repeated on every year of the firm's life. 13 of the 52 columns differ from the timed panel (the team, education, competitor and cumulative-investment ones) and that difference is the look-ahead bias the paper measures. | Released |
+| `data/example/panel_timed.csv` | **The timed panel those tables produce**, 79 rows by 51 columns: every attribute is the one of the row's own year, so a firm's team, investors and competitors are the ones it had at that age. It is the example of the real thing, and the schema the notebook checks itself against. The values do **not** correspond to any real company. | Released |
+| `data/example/panel_snapshot.csv` | **The snapshot panel of the same tables**, the same 79 rows by 51 columns with the temporization switches off: every attribute is the one declared at extraction time, repeated on every year of the firm's life. 13 of the 52 columns differ from the timed panel (the team, education, competitor and cumulative-investment ones) and that difference is the look-ahead bias the paper measures. | Released |
 | `data/processed/dataset_controlled.csv` | **Final bias-controlled dataset** (`controlled`), built from the timed panel. The exact input of every experiment. | Released |
 | `data/processed/dataset_leakboth.csv` | **Final dataset with look-ahead bias** (`leakboth`), built from the snapshot panel on the same firms. | Released |
 | `data/raw/pitchbook/` | The PitchBook extraction the two panels are built from. | **Not released** |
 | `data/interim/panel_timed.csv.gz` | **The real timed panel**, what `1_panel_construction.ipynb` produces from that extraction with the switches on. Same construction as `data/example/panel_timed.csv`, on the full sample. | **Not released** |
 | `data/interim/panel_snapshot.csv.gz` | **The real snapshot panel**, the same run with the switches off. Same construction as `data/example/panel_snapshot.csv`, on the full sample. | **Not released** |
-| `data/raw/QS_World_Rankings.csv` | QS World University Rankings, used to flag top-tier institutes. | See QS terms |
 
 The two released **final datasets** are the exact inputs to every model and
 experiment reported in the paper, so all quantitative results can be reproduced
@@ -92,7 +91,6 @@ firms.
 │   └── config.yaml               # Every setting and every domain rule, in one place
 ├── data/
 │   ├── raw/
-│   │   ├── QS_World_Rankings.csv # University ranking, to flag top-tier institutes
 │   │   └── pitchbook/            # PitchBook extraction (not released)
 │   ├── example/
 │   │   ├── pitchbook/            # Synthetic extraction, 14 tables (released)
@@ -203,9 +201,6 @@ Then pass `--wandb` on the command line, or set `USE_WANDB = True` in
 | nothing | no data needed | everything, on the synthetic extraction already in `data/example/pitchbook/` |
 | the released datasets (in the repository) | `data/processed/` | the experiments, and every comparison of the paper |
 | a PitchBook extraction | `data/raw/pitchbook/` | the whole pipeline, from the raw tables |
-
-The QS ranking (`data/raw/QS_World_Rankings.csv`) is read when the datasets are
-built, to flag the top-tier institutes.
 
 ## Running the pipeline
 
@@ -435,7 +430,7 @@ made in one place and read everywhere:
 
 | block | what it decides |
 |---|---|
-| `paths` | where the extraction, the two panels, the ranking and the two datasets live |
+| `paths` | where the extraction, the two panels and the two datasets live |
 | `first_year` | the oldest founding year admitted into the sample |
 | `first_decision_year` | the oldest decision year (founding year plus starting age) a dataset row can have |
 | `max_starting_age` | the oldest age at which a firm can first reach an early stage and still enter the datasets |
@@ -627,6 +622,5 @@ paper:
 
 The source code is released for academic and research use. The original
 PitchBook-derived panel is **not** included and remains subject to PitchBook's
-licensing terms; the QS World University Rankings are subject to QS's terms of
-use. What this repository distributes is the synthetic extraction, the two example
-panels it produces, and the two final, de-identified datasets.
+licensing terms. What this repository distributes is the synthetic extraction, the
+two example panels it produces, and the two final, de-identified datasets.

@@ -149,7 +149,6 @@ def cmd_datasets(args: argparse.Namespace) -> int:
     cfg, extraction = paths_for(args)
     config = with_dataset_paths(load_config(), extraction)
     pre = config["preprocessing"]
-    ranking = str(ROOT / config["paths"]["raw_university_ranking"])
 
     print(f"reading the two panels from {cfg.interim_dir} ...")
     timed = pl.read_csv(cfg.interim("panel_timed.csv.gz"), null_values=["NA"])
@@ -158,7 +157,6 @@ def cmd_datasets(args: argparse.Namespace) -> int:
     controlled, leakboth = build_processed_datasets(
         timed,
         snapshot,
-        ranking,
         T=int(config["T"]),
         last_year=int(config["last_year"]),
         first_decision_year=int(config["first_decision_year"]),

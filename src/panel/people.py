@@ -224,9 +224,6 @@ def ceo_roles(board: pl.DataFrame, years: pl.DataFrame, rules: PanelRules) -> pl
 def person_attributes(board: pl.DataFrame, cfg: PanelConfig, rules: PanelRules) -> pl.DataFrame:
     """Attach gender, the degrees read off the name, and who is a founder.
 
-    The sort order is not cosmetic: it decides the order in which the institutes
-    are concatenated in the team aggregate further on.
-
     A degree in the name ("Ph.D", " JD", " MD") carries no date, so it counts in
     every year. A founder is recognised from the title of the appointment or from
     the position level, whichever declares it.
@@ -583,7 +580,7 @@ def classify_studies(cfg: PanelConfig, rules: PanelRules) -> pl.DataFrame:
         read_raw(
             cfg,
             "PersonEducationRelation",
-            ["PersonID", "Degree", "Major_Concentration", "GraduatingYear", "Institute"],
+            ["PersonID", "Degree", "Major_Concentration", "GraduatingYear"],
         ),
         MISSING_TOKENS,
     )
@@ -635,10 +632,6 @@ def _education_aggregate(rules: PanelRules) -> list[pl.Expr]:
         ],
         pl.col("GraduatingYear").cast(pl.Float64, strict=False).min().alias("Earliest_Year"),
         level.max().alias("Highest_Degree"),
-        pl.when(pl.col("Institute").is_not_null().sum() > 0)
-        .then(pl.col("Institute").drop_nulls().str.join("; "))
-        .otherwise(None)
-        .alias("Institute"),
     ]
 
 
@@ -661,19 +654,15 @@ def education_by_year(
     :param rules: Domain rules.
     :return: One row per (person, year), with the education as of that year.
     """
-    degrees = (
-        studies.join(people.select("PersonID").unique(), on="PersonID", how="semi")
-        # The row order decides the order of the institutes in the concatenation.
-        .with_row_index("_order")
-        .with_columns(
-            pl.col("GraduatingYear").cast(pl.Int64, strict=False).fill_null(0).alias("degree_year")
-        )
+    degrees = studies.join(
+        people.select("PersonID").unique(), on="PersonID", how="semi"
+    ).with_columns(
+        pl.col("GraduatingYear").cast(pl.Int64, strict=False).fill_null(0).alias("degree_year")
     )
     points = degrees.select("PersonID", pl.col("degree_year").alias("year")).unique()
     return (
         points.join(degrees, on="PersonID")
         .filter(pl.col("degree_year") <= pl.col("year"))
-        .sort("_order")
         .group_by("PersonID", "year", maintain_order=True)
         .agg(_education_aggregate(rules))
         .sort("PersonID", "year")

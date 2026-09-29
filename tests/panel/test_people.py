@@ -244,7 +244,6 @@ def _studies(rows: list[dict]) -> pl.DataFrame:
         "Degree": "MSc",
         "Major_Concentration": "Computer Science",
         "GraduatingYear": "2010",
-        "Institute": "Politecnico",
         "DegreeLevel": "Master's",
         "Field": "IT and Computer Science",
     }
@@ -280,17 +279,6 @@ def test_the_field_flags_stay_unknown_when_no_subject_is_classifiable():
     studies = _studies([{"Field": None, "Major_Concentration": None}])
     education = education_by_year(studies, _people(), RULES)
     assert education["Is_IT"].to_list() == [None]
-
-
-def test_the_institutes_of_a_year_are_concatenated():
-    studies = _studies(
-        [
-            {"GraduatingYear": "2010", "Institute": "Politecnico"},
-            {"GraduatingYear": "2010", "Institute": "Bocconi"},
-        ]
-    )
-    education = education_by_year(studies, _people(), RULES)
-    assert education["Institute"].to_list() == ["Politecnico; Bocconi"]
 
 
 def test_a_person_outside_the_panel_is_not_covered():
