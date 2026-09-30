@@ -156,6 +156,7 @@ def run_once(
     metrics["F1_tuned"] = f1_score(y_test, preds_tuned, zero_division=0)
     metrics["precision_tuned"] = precision_score(y_test, preds_tuned, zero_division=0)
     metrics["recall_tuned"] = recall_score(y_test, preds_tuned, zero_division=0)
+    metrics["accuracy_tuned"] = accuracy_score(y_test, preds_tuned)
     metrics["threshold"] = threshold
 
     if use_wandb:
@@ -216,6 +217,17 @@ def run_once(
     return metrics
 
 
+def _forget(tag, metrics_store, shap_store):
+    """Drop what an earlier run of this experiment left in the two stores.
+
+    run_once appends one entry per seed, so running an experiment twice in one
+    session would otherwise put ten seeds under a model instead of five.
+    """
+    for store in (metrics_store, shap_store):
+        for key in [k for k in store if k[1] == tag]:
+            del store[key]
+
+
 def run_grid(tag, X, y, config, split_kwargs, metrics_store, shap_store):
     """Run every combination the sweep declares, without a sweep.
 
@@ -232,6 +244,7 @@ def run_grid(tag, X, y, config, split_kwargs, metrics_store, shap_store):
     :param shap_store: The same, for the SHAP values.
     :return: How many runs were executed.
     """
+    _forget(tag, metrics_store, shap_store)
     runs = grid_runs(config)
     for i, params in enumerate(runs, start=1):
         print(f"\n── run {i}/{len(runs)} ─────────────────────────────────────────")
@@ -264,9 +277,12 @@ def make_train(tag, X, y, config, split_kwargs, metrics_store, shap_store):
                           experiments the comparison tables need.
     :param shap_store:    same, for the SHAP values of the explained seed.
     """
+    _forget(tag, metrics_store, shap_store)
 
     def train():
-        with wandb.init():
+        # The experiment goes on the run as a tag and a config key, so the runs of
+        # different settings can be filtered and grouped in the dashboard.
+        with wandb.init(tags=[tag], config={"setting": tag}):
             run_once(
                 wandb.config,
                 tag,
