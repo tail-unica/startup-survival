@@ -8,6 +8,9 @@ img/
 # Temporary files, and the split cache
 tmp/
 
+# Logs of the command line runs
+log/
+
 # Predicted probabilities of the runs: real data, never committed
 results/
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -186,7 +187,7 @@ def cmd_experiments(args: argparse.Namespace) -> int:
     """
     from src.experiments import SETTINGS, load_setting, split_strata
     from src.training import make_train, run_grid
-    from src.utils import THRESHOLD_METRICS, summarize_metrics
+    from src.utils import THRESHOLD_METRICS, save_stores, summarize_metrics
 
     _, extraction = paths_for(args)
     config = with_dataset_paths(load_config(), extraction)
@@ -218,7 +219,7 @@ def cmd_experiments(args: argparse.Namespace) -> int:
 
             load_dotenv()
             sweep_id = wandb.sweep(
-                config["sweep_settings"],
+                {**config["sweep_settings"], "name": setting},
                 entity=os.getenv("entity"),
                 project=os.getenv("project"),
             )
@@ -226,6 +227,9 @@ def cmd_experiments(args: argparse.Namespace) -> int:
             wandb.agent(sweep_id, function=train, count=args.runs)
         else:
             run_grid(setting, X, y, config, setting_split, metrics_store, shap_store)
+        # Written now, not at the end: a failure in a later setting keeps this one.
+        path = save_stores(metrics_store, shap_store, setting, config)
+        print(f"   stores saved to {path}")
 
     print("\n── results ──")
     for setting in settings:
@@ -355,14 +359,54 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+class _Tee:
+    """A stream that writes to the terminal and to a log file at once."""
+
+    def __init__(self, stream, log):
+        self.stream, self.log = stream, log
+
+    def write(self, text):
+        self.stream.write(text)
+        self.log.write(text)
+        self.log.flush()  # a crash must not leave the last lines in a buffer
+        return len(text)
+
+    def flush(self):
+        self.stream.flush()
+        self.log.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse the arguments and run the chosen subcommand.
+
+    Everything printed, errors included, is also written to
+    ``log/<command>_<date>_<time>.log``.
 
     :param argv: Arguments, defaulting to the process ones.
     :return: Exit code.
     """
     args = build_parser().parse_args(argv)
-    return args.func(args)
+    log_dir = ROOT / "log"
+    log_dir.mkdir(exist_ok=True)
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    # ponytail: only Python-level output is captured; a C library writing straight
+    # to the file descriptor bypasses it. Redirect fd 1 and 2 if that ever matters.
+    with open(log_dir / f"{args.command}_{stamp}.log", "w") as log:
+        sys.stdout, sys.stderr = _Tee(sys.stdout, log), _Tee(sys.stderr, log)
+        print(f"log: {log.name}")
+        try:
+            return args.func(args)
+        except BaseException:
+            import traceback
+
+            # Into the file only: the terminal gets it from the raise.
+            traceback.print_exc(file=log)
+            raise
+        finally:
+            sys.stdout, sys.stderr = sys.stdout.stream, sys.stderr.stream
 
 
 if __name__ == "__main__":

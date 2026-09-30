@@ -8,8 +8,10 @@ from src.utils import (
     compare_metrics,
     f1_optimal_threshold,
     get_split,
+    load_stores,
     prepare_splits,
     save_predictions,
+    save_stores,
     summarize_metrics,
 )
 
@@ -187,7 +189,14 @@ def test_f1_optimal_threshold_picks_the_cut_that_separates_the_classes():
 
 def test_tuned_metrics_stay_out_of_the_main_table_and_fill_the_threshold_one():
     runs = [
-        {**r, "F1_tuned": 0.7, "precision_tuned": 0.6, "recall_tuned": 0.8, "threshold": 0.3}
+        {
+            **r,
+            "F1_tuned": 0.7,
+            "precision_tuned": 0.6,
+            "recall_tuned": 0.8,
+            "accuracy_tuned": 0.75,
+            "threshold": 0.3,
+        }
         for r in _runs([0.80, 0.82])
     ]
     store = {("rf", "controlled"): runs}
@@ -195,7 +204,8 @@ def test_tuned_metrics_stay_out_of_the_main_table_and_fill_the_threshold_one():
     main = summarize_metrics(store, "controlled")
     tuned = summarize_metrics(store, "controlled", metric_order=THRESHOLD_METRICS)
 
-    assert not {"F1_tuned", "precision_tuned", "recall_tuned", "threshold"} & set(main.columns)
+    tuned_keys = {"F1_tuned", "precision_tuned", "recall_tuned", "accuracy_tuned", "threshold"}
+    assert not tuned_keys & set(main.columns)
     assert list(tuned.columns) == ["Model", "Seeds", *THRESHOLD_METRICS]
     assert tuned["threshold"][0] == "0.300 ± 0.000"
 
@@ -215,6 +225,20 @@ def test_saved_predictions_keep_labels_and_dataset_rows_aligned(tmp_path):
     np.testing.assert_array_equal(saved["row_test"], [5, 1, 9])
     np.testing.assert_allclose(saved["prob_val"], [0.2, 0.9])
     np.testing.assert_array_equal(saved["row_val"], [7, 3])
+
+
+def test_stores_saved_per_experiment_merge_back(tmp_path):
+    """Each experiment writes only its own keys, and loading brings all of them back."""
+    config = {"stores": {"dir": str(tmp_path)}}
+    metrics = {("rf", "controlled"): _runs([0.8]), ("rf", "leakboth"): _runs([0.9])}
+    shap_values = {("rf", "controlled"): {"shap_values": np.zeros((2, 3))}}
+
+    save_stores(metrics, shap_values, "controlled", config)
+    save_stores(metrics, shap_values, "leakboth", config)
+    loaded_metrics, loaded_shap = load_stores(config)
+
+    assert loaded_metrics == metrics
+    assert set(loaded_shap) == {("rf", "controlled")}
 
 
 def test_two_targets_stratified_on_the_same_labels_share_the_split(toy_frame):

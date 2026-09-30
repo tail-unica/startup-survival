@@ -340,6 +340,15 @@ uv run python scripts/pipeline.py experiments --setting controlled
 uv run python scripts/pipeline.py experiments --setting all --wandb
 ```
 
+Each setting writes its metrics and SHAP values to `results/stores/stores_<setting>.joblib`
+as soon as it ends, so a failure in a later one does not lose it; `LOAD_FROM_DISK =
+True` in `3_experiments.ipynb` reads them back and runs every table and comparison
+without training. With `--wandb` each setting gets its own sweep, named after it,
+and every run carries the setting as a tag and as the `setting` config key.
+
+Every command also writes what it prints, errors included, to
+`log/<command>_<date>_<time>.log`.
+
 The six settings are two datasets, two ablations of the bias-controlled one, and
 two controls that take the 2×2 apart by swapping the target between the two
 datasets on `CompanyID`, legitimate because both carry the same firms and the same

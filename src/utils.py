@@ -393,6 +393,45 @@ def save_predictions(split, probs_val, probs_test, model_type, tag, seed, config
     return path
 
 
+def save_stores(metrics_store, shap_store, tag, config):
+    """Write one experiment's metrics and SHAP values under ``config['stores']['dir']``.
+
+    Called as soon as an experiment finishes, so a failure in a later one loses
+    only that one. One file per experiment: a re-run overwrites its own file.
+
+    :param metrics_store: dict keyed by ``(model_type, tag)``, as filled by run_once.
+    :param shap_store:    the same, for the SHAP values of the explained seed.
+    :param tag:           the experiment to write; the other keys are left out.
+    :param config:        the parsed ``config.yaml``.
+    :return:              the path written, as a ``Path``.
+    """
+    directory = Path(config["stores"]["dir"])
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"stores_{tag}.joblib"
+    joblib.dump(
+        {
+            "metrics": {k: v for k, v in metrics_store.items() if k[1] == tag},
+            "shap": {k: v for k, v in shap_store.items() if k[1] == tag},
+        },
+        path,
+    )
+    return path
+
+
+def load_stores(config):
+    """Read back every experiment :func:`save_stores` wrote, merged in two stores.
+
+    :param config: the parsed ``config.yaml``.
+    :return:       ``(metrics_store, shap_store)``, keyed as run_once keys them.
+    """
+    metrics_store, shap_store = {}, {}
+    for path in sorted(Path(config["stores"]["dir"]).glob("stores_*.joblib")):
+        saved = joblib.load(path)
+        metrics_store.update(saved["metrics"])
+        shap_store.update(saved["shap"])
+    return metrics_store, shap_store
+
+
 def _prepare_shap_comparison(
     shap_store, model="lgb", experiments=("controlled", "leakboth"), top_k=20
 ):
@@ -763,16 +802,18 @@ def get_probs(loader, model, device):
     return np.array(all_probs).flatten(), np.array(all_labels).flatten().astype(int)
 
 
-# F1, precision and recall at p >= 0.5 and at the threshold tuned on the
+# F1, precision, recall and accuracy at p >= 0.5 and at the threshold tuned on the
 # validation set, plus that threshold: the columns of the supplementary table,
 # summarize_metrics(store, tag, metric_order=THRESHOLD_METRICS).
 THRESHOLD_METRICS = [
     "F1",
     "precision",
     "recall",
+    "accuracy",
     "F1_tuned",
     "precision_tuned",
     "recall_tuned",
+    "accuracy_tuned",
     "threshold",
 ]
 _NOT_IN_MAIN_TABLES = {
@@ -783,6 +824,7 @@ _NOT_IN_MAIN_TABLES = {
     "F1_tuned",
     "precision_tuned",
     "recall_tuned",
+    "accuracy_tuned",
     "threshold",
 }
 
