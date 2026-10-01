@@ -90,6 +90,7 @@ class LightGBMModel(_TreeModel):
                 reg_alpha=cfg.reg_alpha,
                 reg_lambda=cfg.reg_lambda,
                 random_state=seed,
+                verbose=-1,
             ),
             seed,
         )
@@ -135,7 +136,7 @@ class LogisticRegressionModel(Model):
             LogisticRegression(
                 C=cfg.lr_C,
                 penalty=cfg.lr_penalty,
-                solver="saga",
+                solver="lbfgs",
                 class_weight="balanced",
                 max_iter=1000,
                 random_state=seed,
