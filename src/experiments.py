@@ -96,3 +96,48 @@ def grid_runs(config: dict[str, Any]) -> list[dict[str, Any]]:
     for name, values in crossed.items():
         runs = [{**run, name: value} for value in values for run in runs]
     return runs
+
+
+def grouped_variants(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """The runs of the grouped-preprocessing check, from ``grouped_preprocessing`` in the config.
+
+    One variant per setting, grouping column and fitted step: the imputer fitted per
+    group (``impute``), the scaler (``scale``), or both. A variant reads the dataset of
+    its setting and draws its splits, so its reference is the setting itself. The
+    ``scale`` variants keep only the families fitted on scaled data: the others never
+    see the scaler, and would repeat the reference runs.
+
+    :param config: The parsed ``config.yaml``.
+    :return: One dict per variant: ``tag`` (``<setting>_<fit>-<group>``), ``setting``,
+        the ``split`` options for ``get_split`` and the ``config`` to run it with.
+    :raises ValueError: If ``fit`` names a step other than impute, scale or both.
+    """
+    from src.models import MODELS
+
+    grouped = config["grouped_preprocessing"]
+    unknown = set(grouped["fit"]) - {"impute", "scale", "both"}
+    if unknown:
+        raise ValueError(f"unknown grouped step(s) {sorted(unknown)}; expected impute, scale, both")
+    models = config["sweep_settings"]["parameters"]["model_type"]["values"]
+    scaled = [m for m in models if MODELS[m].wants_scaled]
+    variants = []
+    for setting in grouped["settings"]:
+        for group, column in grouped["groups"].items():
+            for fit in grouped["fit"]:
+                sweep = config["sweep_settings"]
+                parameters = {
+                    **sweep["parameters"],
+                    "model_type": {"values": scaled if fit == "scale" else models},
+                }
+                variants.append(
+                    {
+                        "tag": f"{setting}_{fit}-{group}",
+                        "setting": setting,
+                        "split": {
+                            "impute_by": column if fit in ("impute", "both") else None,
+                            "scale_by": column if fit in ("scale", "both") else None,
+                        },
+                        "config": {**config, "sweep_settings": {**sweep, "parameters": parameters}},
+                    }
+                )
+    return variants

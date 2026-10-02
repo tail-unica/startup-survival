@@ -41,6 +41,63 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
 
 
+def _group_labels(frame, column, encodings, other_label):
+    """
+    The group of every row of one split, read off ``column`` before the encoding.
+
+    A frequency-encoded column is grouped as the encoding sees it: the categories
+    pooled into ``other_label`` form one group, so no group is smaller than the
+    encoding threshold. Any other column is grouped on its raw values.
+    """
+    labels = frame[column]
+    if column in encodings:
+        kept = set(encodings[column]) - {other_label}
+        labels = labels.where(labels.isin(kept), other_label)
+    return labels.to_numpy()
+
+
+def _fit_transform_by_group(make, train, others, groups_train, groups_others):
+    """
+    Fits one transformer per training group and applies it to that group's rows.
+
+    Each group's transformer sees the training rows of that group alone, so a
+    held-out row is transformed only with training information, as in the global
+    case. A row whose group has no training rows (a missing label, or a label the
+    training split never drew), and every row of a group whose training rows
+    leave a column entirely missing, which a KNNImputer cannot fit, goes through
+    one transformer fitted on the whole training split instead.
+
+    :param make:          builds an unfitted transformer.
+    :param train:         training matrix.
+    :param others:        held-out matrices.
+    :param groups_train:  group label of every training row.
+    :param groups_others: the same for each held-out matrix.
+    :return:              transformed training matrix followed by the held-out ones.
+    """
+    sources = [np.asarray(train, dtype=float)] + [np.asarray(m, dtype=float) for m in others]
+    groups = [np.asarray(g, dtype=object) for g in (groups_train, *groups_others)]
+    out = [np.full_like(m, np.nan) for m in sources]
+    done = [np.zeros(len(m), dtype=bool) for m in sources]
+
+    for group in pd.unique(groups[0][~pd.isna(groups[0])]):
+        rows = sources[0][groups[0] == group]
+        if np.isnan(rows).all(axis=0).any():
+            continue
+        fitted = make().fit(rows)
+        for src, grp, dst, flag in zip(sources, groups, out, done, strict=True):
+            mask = grp == group
+            if mask.any():
+                dst[mask] = fitted.transform(src[mask])
+                flag[mask] = True
+
+    if not all(flag.all() for flag in done):
+        fitted = make().fit(sources[0])
+        for src, dst, flag in zip(sources, out, done, strict=True):
+            if not flag.all():
+                dst[~flag] = fitted.transform(src[~flag])
+    return out
+
+
 def prepare_splits(
     X,
     y,
@@ -51,6 +108,8 @@ def prepare_splits(
     min_frequency=DEFAULT_MIN_FREQUENCY,
     other_label=DEFAULT_OTHER_LABEL,
     stratify=None,
+    impute_by=None,
+    scale_by=None,
 ):
     """
     Builds one stratified train/validation/test split, encoded, imputed and scaled.
@@ -85,7 +144,17 @@ def prepare_splits(
                                 experiments pass the controlled target, so that
                                 every setting draws the same firms into the same
                                 sets whatever its own target says.
-    :return:                    dict with the raw frames (X_train/X_val/X_test),
+    :param impute_by:           column whose groups get a KNN imputer each,
+                                fitted on the group's training rows: the
+                                neighbours of a row are then drawn from its own
+                                cohort or sector. ``None`` fits one imputer on
+                                the whole training split.
+    :param scale_by:            the same for the scaler. The grouping column
+                                itself is scaled by the global scaler: inside a
+                                group it is constant, and a per-group scaler
+                                would set it to zero everywhere, removing the
+                                feature instead of rescaling the others.
+    :return:                   dict with the raw frames (X_train/X_val/X_test),
                                 the targets, the imputed arrays (*_imp), the
                                 scaled arrays (*_scaled) and the fitted
                                 ``encodings``.
@@ -99,6 +168,7 @@ def prepare_splits(
     )
 
     X_train, X_val, X_test = X_train.copy(), X_val.copy(), X_test.copy()
+    raw = (X_train.copy(), X_val.copy(), X_test.copy())
 
     encodings = {}
     for column in [c for c in categorical_columns if c in X_train.columns]:
@@ -110,15 +180,39 @@ def prepare_splits(
                 frame[column], encodings[column], other_label=other_label
             )
 
-    imputer = KNNImputer(n_neighbors=n_neighbors)
-    X_train_imp = imputer.fit_transform(X_train)
-    X_val_imp = imputer.transform(X_val)
-    X_test_imp = imputer.transform(X_test)
+    def groups(column):
+        return [_group_labels(frame, column, encodings, other_label) for frame in raw]
+
+    if impute_by is None:
+        imputer = KNNImputer(n_neighbors=n_neighbors)
+        X_train_imp = imputer.fit_transform(X_train)
+        X_val_imp = imputer.transform(X_val)
+        X_test_imp = imputer.transform(X_test)
+    else:
+        g_train, g_val, g_test = groups(impute_by)
+        X_train_imp, X_val_imp, X_test_imp = _fit_transform_by_group(
+            lambda: KNNImputer(n_neighbors=n_neighbors),
+            X_train,
+            (X_val, X_test),
+            g_train,
+            (g_val, g_test),
+        )
 
     scaler = RobustScaler()
     X_train_scaled = scaler.fit_transform(X_train_imp)
     X_val_scaled = scaler.transform(X_val_imp)
     X_test_scaled = scaler.transform(X_test_imp)
+    if scale_by is not None:
+        g_train, g_val, g_test = groups(scale_by)
+        grouped = _fit_transform_by_group(
+            RobustScaler, X_train_imp, (X_val_imp, X_test_imp), g_train, (g_val, g_test)
+        )
+        own = X_train.columns.get_loc(scale_by)
+        for scaled, by_group in zip(
+            (X_train_scaled, X_val_scaled, X_test_scaled), grouped, strict=True
+        ):
+            by_group[:, own] = scaled[:, own]
+        X_train_scaled, X_val_scaled, X_test_scaled = grouped
 
     return {
         "seed": seed,
@@ -139,7 +233,15 @@ def prepare_splits(
 
 
 def _split_fingerprint(
-    X, test_size, n_neighbors, categorical_columns, min_frequency, other_label, stratify=None
+    X,
+    test_size,
+    n_neighbors,
+    categorical_columns,
+    min_frequency,
+    other_label,
+    stratify=None,
+    impute_by=None,
+    scale_by=None,
 ):
     """
     Short hash of everything that changes a split other than tag and seed.
@@ -161,6 +263,8 @@ def _split_fingerprint(
             "categorical_columns": sorted(str(c) for c in categorical_columns),
             "min_frequency": min_frequency,
             "other_label": other_label,
+            "impute_by": impute_by,
+            "scale_by": scale_by,
             # Hashed by position: the same labels in another order are another split.
             "stratify": None
             if stratify is None
@@ -183,6 +287,8 @@ def get_split(
     min_frequency=DEFAULT_MIN_FREQUENCY,
     other_label=DEFAULT_OTHER_LABEL,
     stratify=None,
+    impute_by=None,
+    scale_by=None,
     force=False,
 ):
     """
@@ -203,7 +309,15 @@ def get_split(
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     fingerprint = _split_fingerprint(
-        X, test_size, n_neighbors, categorical_columns, min_frequency, other_label, stratify
+        X,
+        test_size,
+        n_neighbors,
+        categorical_columns,
+        min_frequency,
+        other_label,
+        stratify,
+        impute_by,
+        scale_by,
     )
     cache_file = cache_dir / f"split_{tag}_seed{seed}_{fingerprint}.joblib"
 
@@ -220,6 +334,8 @@ def get_split(
         min_frequency=min_frequency,
         other_label=other_label,
         stratify=stratify,
+        impute_by=impute_by,
+        scale_by=scale_by,
     )
     joblib.dump(split, cache_file)
     return split
