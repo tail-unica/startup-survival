@@ -9,6 +9,7 @@ notebooks call.
     python scripts/pipeline.py panel --both
     python scripts/pipeline.py datasets
     python scripts/pipeline.py experiments --setting controlled
+    python scripts/pipeline.py experiments --grouped
     python scripts/pipeline.py all --example
 
 Run ``--help`` on any subcommand for its options. Nothing here needs a Weights &
@@ -181,8 +182,8 @@ def cmd_datasets(args: argparse.Namespace) -> int:
 def cmd_experiments(args: argparse.Namespace) -> int:
     """Train the seven model families on one experiment, or on all of them.
 
-    :param args: Parsed arguments; ``--setting``, ``--wandb`` and ``--runs`` are
-        read.
+    :param args: Parsed arguments; ``--setting``, ``--wandb``, ``--runs`` and
+        ``--grouped`` are read.
     :return: Exit code.
     """
     from src.experiments import SETTINGS, load_setting, split_strata
@@ -202,6 +203,9 @@ def cmd_experiments(args: argparse.Namespace) -> int:
     }
     metrics_store: dict = {}
     shap_store: dict = {}
+
+    if args.grouped:
+        return run_grouped(config, split_kwargs, use_wandb=args.wandb)
 
     for setting in settings:
         dataset = load_setting(setting, config)
@@ -237,6 +241,61 @@ def cmd_experiments(args: argparse.Namespace) -> int:
         print(summarize_metrics(metrics_store, setting))
         print(f"\n{setting}: threshold 0.5 vs tuned on validation")
         print(summarize_metrics(metrics_store, setting, metric_order=THRESHOLD_METRICS))
+    return 0
+
+
+def run_grouped(
+    config: dict[str, Any], split_kwargs: dict[str, Any], *, use_wandb: bool = False
+) -> int:
+    """Train the variants of ``grouped_preprocessing``, imputer and scaler fitted per group.
+
+    Each variant reads the dataset of its setting and draws its splits, so its
+    reference is that setting, run on its own with ``--setting``. Each variant
+    writes its stores as it ends, beside those of the settings, where the notebook
+    reads them back.
+
+    :param config: The parsed configuration, pointed at the chosen extraction.
+    :param split_kwargs: The options ``get_split`` shares across the settings.
+    :param use_wandb: Whether to log to Weights & Biases through a sweep agent.
+    :return: Exit code.
+    """
+    from src.experiments import grid_runs, grouped_variants, load_setting, split_strata
+    from src.training import make_train, run_grid
+    from src.utils import save_stores, summarize_metrics
+
+    variants = grouped_variants(config)
+    metrics_store: dict = {}
+    shap_store: dict = {}
+    for i, variant in enumerate(variants, start=1):
+        dataset = load_setting(variant["setting"], config)
+        X = dataset.drop(["CompanyID", "Target"], axis=1)
+        y = dataset["Target"]
+        kwargs = {**split_kwargs, "stratify": split_strata(dataset, config), **variant["split"]}
+        tag, variant_config = variant["tag"], variant["config"]
+        print(f"\n── variant {i}/{len(variants)}: {tag} {variant['split']}")
+        if use_wandb:
+            import os
+
+            import wandb
+            from dotenv import load_dotenv
+
+            load_dotenv()
+            sweep_id = wandb.sweep(
+                {**variant_config["sweep_settings"], "name": tag},
+                entity=os.getenv("entity"),
+                project=os.getenv("project"),
+            )
+            train = make_train(tag, X, y, variant_config, kwargs, metrics_store, shap_store)
+            wandb.agent(sweep_id, function=train, count=len(grid_runs(variant_config)))
+        else:
+            run_grid(tag, X, y, variant_config, kwargs, metrics_store, shap_store)
+        path = save_stores(metrics_store, shap_store, variant["tag"], config)
+        print(f"   stores saved to {path}")
+
+    print("\n── results ──")
+    for variant in variants:
+        print(f"\n{variant['tag']}")
+        print(summarize_metrics(metrics_store, variant["tag"]))
     return 0
 
 
@@ -346,6 +405,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_exp.add_argument(
         "--runs", type=int, default=35, help="how many runs the sweep agent draws (default: 35)"
     )
+    p_exp.add_argument(
+        "--grouped",
+        action="store_true",
+        help="instead of --setting, run the variants of grouped_preprocessing in config.yaml: "
+        "imputer, scaler or both fitted per cohort or sector; with --wandb, one sweep "
+        "per variant (--runs is ignored)",
+    )
     p_exp.set_defaults(func=cmd_experiments)
 
     p_all = sub.add_parser("all", parents=[common], help="every stage, in order")
@@ -355,7 +421,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_all.add_argument("--runs", type=int, default=35)
     p_all.add_argument("--missing-threshold", type=float, default=None)
     p_all.add_argument("--max-missing-per-row", type=int, default=None)
-    p_all.set_defaults(func=cmd_all)
+    p_all.set_defaults(func=cmd_all, grouped=False)
     return parser
 
 

@@ -317,6 +317,98 @@ def test_columns_absent_from_the_frame_are_ignored(toy_categorical_frame):
     assert set(s["encodings"]) == {"HQCountry"}
 
 
+# --- prepare_splits: imputer and scaler fitted per group ---------------------
+
+
+@pytest.fixture
+def toy_grouped_frame():
+    """Two groups whose column ``b`` sits on two levels, and noise everywhere else,
+    so a global KNN would draw neighbours from both groups."""
+    rng = np.random.default_rng(3)
+    n = 400
+    g = np.repeat([0, 1], n // 2)
+    X = pd.DataFrame({"g": g, "a": rng.normal(scale=10, size=n), "b": 50.0 * g})
+    X.loc[X.index[::7], "b"] = np.nan
+    y = pd.Series((rng.random(n) < 0.3).astype(int))
+    return X, y
+
+
+def test_the_grouped_imputer_draws_neighbours_from_the_row_s_own_group(toy_grouped_frame):
+    X, y = toy_grouped_frame
+    s = prepare_splits(X, y, seed=1, test_size=0.4, impute_by="g")
+    for raw, imputed in (
+        ("X_train", "X_train_imp"),
+        ("X_val", "X_val_imp"),
+        ("X_test", "X_test_imp"),
+    ):
+        b = s[imputed][:, X.columns.get_loc("b")]
+        np.testing.assert_array_equal(b, 50.0 * s[raw]["g"].to_numpy())
+
+
+def test_the_grouped_scaler_centres_every_group_on_its_training_rows(toy_grouped_frame):
+    X, y = toy_grouped_frame
+    s = prepare_splits(X, y, seed=1, test_size=0.4, scale_by="g")
+    reference = prepare_splits(X, y, seed=1, test_size=0.4)
+    a = X.columns.get_loc("a")
+    for group in (0, 1):
+        rows = s["X_train"]["g"].to_numpy() == group
+        assert abs(np.median(s["X_train_scaled"][rows, a])) < 1e-9
+    # The grouping column goes through the global scaler, or it would be zero everywhere.
+    g = X.columns.get_loc("g")
+    for key in ("X_train_scaled", "X_val_scaled", "X_test_scaled"):
+        np.testing.assert_array_equal(s[key][:, g], reference[key][:, g])
+
+
+def test_a_group_the_training_split_lacks_goes_through_the_global_fit(toy_grouped_frame):
+    X, y = toy_grouped_frame
+    X = X.astype({"g": float})
+    X.loc[X.index[:5], "g"] = np.nan  # rows with no group at all
+    s = prepare_splits(X, y, seed=1, test_size=0.4, impute_by="g", scale_by="g")
+    for key in ("X_train_scaled", "X_val_scaled", "X_test_scaled"):
+        assert not np.isnan(np.delete(s[key], X.columns.get_loc("g"), axis=1)).any()
+
+
+def test_a_frequency_encoded_column_is_grouped_as_the_encoding_pools_it(toy_categorical_frame):
+    """JPN and ESP fall under the threshold: they form one group, not two tiny ones."""
+    from src.utils import _group_labels
+
+    X, y = toy_categorical_frame
+    encodings = {"HQCountry": {"USA": 0.6, "GBR": 0.25, "ITA": 0.11, "Others": 0.04}}
+    labels = _group_labels(X, "HQCountry", encodings, "Others")
+    assert set(labels) == {"USA", "GBR", "ITA", "Others"}
+
+
+def test_grouped_variants_cross_settings_groups_and_steps():
+    from src.experiments import grouped_variants
+
+    config = {
+        "grouped_preprocessing": {
+            "settings": ["controlled"],
+            "groups": {"cohort": "YearFounded"},
+            "fit": ["impute", "scale", "both"],
+        },
+        "sweep_settings": {"parameters": {"model_type": {"values": ["lgb", "lr", "svm"]}}},
+    }
+    variants = {v["tag"]: v for v in grouped_variants(config)}
+    assert set(variants) == {
+        "controlled_impute-cohort",
+        "controlled_scale-cohort",
+        "controlled_both-cohort",
+    }
+    assert variants["controlled_both-cohort"]["split"] == {
+        "impute_by": "YearFounded",
+        "scale_by": "YearFounded",
+    }
+
+    def models(tag):
+        return variants[tag]["config"]["sweep_settings"]["parameters"]["model_type"]["values"]
+
+    assert models("controlled_scale-cohort") == ["lr", "svm"]
+    assert models("controlled_impute-cohort") == ["lgb", "lr", "svm"]
+    # The caller's config is left alone.
+    assert config["sweep_settings"]["parameters"]["model_type"]["values"] == ["lgb", "lr", "svm"]
+
+
 # --- get_split: cache invalidation and regeneration --------------------------
 
 
@@ -327,9 +419,19 @@ def test_columns_absent_from_the_frame_are_ignored(toy_categorical_frame):
         ({"test_size": 0.2}, False),
         ({"n_neighbors": 3}, False),
         ({"other_label": "Rest"}, False),
+        ({"impute_by": "HQCountry"}, False),
+        ({"scale_by": "HQCountry"}, False),
         ({}, True),
     ],
-    ids=["min_frequency", "test_size", "n_neighbors", "other_label", "data"],
+    ids=[
+        "min_frequency",
+        "test_size",
+        "n_neighbors",
+        "other_label",
+        "impute_by",
+        "scale_by",
+        "data",
+    ],
 )
 def test_the_cache_key_covers_everything_that_changes_a_split(
     toy_categorical_frame, tmp_path, changed, edit_the_data

@@ -429,6 +429,20 @@ shap_permutation:
     n_background: 8
 
 
+# Preprocessing fitted per group: the KNN imputer, the scaler,
+# or both, fitted on the training rows of each cohort or sector instead of on the
+# whole training split. Every variant runs on the splits of its setting, so it is
+# compared seed by seed with the global preprocessing. The variants that only
+# move the scaler train only the families fitted on scaled data: for the others
+# they would repeat the reference runs.
+grouped_preprocessing:
+  settings: ["controlled", "leakboth"]
+  groups:
+    cohort: "YearFounded"
+    sector: "PrimaryIndustrySector" # grouped as the frequency encoding pools it
+  fit: ["impute", "scale", "both"]
+
+
 predictions:
   dir: "results/predictions" # validation and test probabilities of every run, one .npz per model, experiment and seed
 
