@@ -378,7 +378,7 @@ sweep_settings:
     batch_size:
       values: [256]
     svm_C:
-      values: [0.7]
+      values: [0.7014829104829374]
     svm_gamma:
       values: ["scale"]
     tabpfn_n_estimators:

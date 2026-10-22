@@ -1,6 +1,6 @@
 # The Future Is Not a Feature: A Look-Ahead Bias-Free Evaluation Framework for Startup Success Prediction through Machine Learning
 
-This repository contains the code, the released datasets, and the reproducible
+This repository contains the code, the synthetic example data, and the reproducible
 pipeline accompanying the paper *"The Future Is Not a Feature: A Look-Ahead
 Bias-Free Evaluation Framework for Startup Success Prediction through Machine
 Learning."*
@@ -69,18 +69,20 @@ release the following:
 | `data/example/pitchbook/` | **A synthetic extraction.** Fourteen invented tables in the shape PitchBook delivers, carrying only the columns the pipeline reads and a cast of eight companies chosen so that every branch of the panel construction fires at least once. `scripts/make_example_data.py` writes them and documents each company's story. | Released |
 | `data/example/panel_timed.csv` | **The timed panel those tables produce**, 79 rows by 51 columns: every attribute is the one of the row's own year, so a firm's team, investors and competitors are the ones it had at that age. It is the example of the real thing, and the schema the notebook checks itself against. The values do **not** correspond to any real company. | Released |
 | `data/example/panel_snapshot.csv` | **The snapshot panel of the same tables**, the same 79 rows by 51 columns with the temporization switches off: every attribute is the one declared at extraction time, repeated on every year of the firm's life. 13 of the 52 columns differ from the timed panel (the team, education, competitor and cumulative-investment ones) and that difference is the look-ahead bias the paper measures. | Released |
-| `data/processed/dataset_controlled.csv` | **Final bias-controlled dataset** (`controlled`), built from the timed panel. The exact input of every experiment. | Released |
-| `data/processed/dataset_leakboth.csv` | **Final dataset with look-ahead bias** (`leakboth`), built from the snapshot panel on the same firms. | Released |
+| `data/processed/dataset_controlled.csv` | **Final bias-controlled dataset** (`controlled`), built from the timed panel. The exact input of every experiment. | **Available on request** |
+| `data/processed/dataset_leakboth.csv` | **Final dataset with look-ahead bias** (`leakboth`), built from the snapshot panel on the same firms. | **Available on request** |
 | `data/raw/pitchbook/` | The PitchBook extraction the two panels are built from. | **Not released** |
 | `data/interim/panel_timed.csv.gz` | **The real timed panel**, what `1_panel_construction.ipynb` produces from that extraction with the switches on. Same construction as `data/example/panel_timed.csv`, on the full sample. | **Not released** |
 | `data/interim/panel_snapshot.csv.gz` | **The real snapshot panel**, the same run with the switches off. Same construction as `data/example/panel_snapshot.csv`, on the full sample. | **Not released** |
 
-The two released **final datasets** are the exact inputs to every model and
-experiment reported in the paper, so all quantitative results can be reproduced
-without access to the original panels. The two example panels are provided only to
-demonstrate and re-run the upstream feature-engineering pipeline, and to show, on
-data that can be published, what the two temporization settings do to the same
-firms.
+The two **final datasets** are the exact inputs to every model and experiment
+reported in the paper. They are derived from PitchBook Data, Inc., and under its
+licensing terms they **cannot be made public**. They are **available on request**,
+for non-commercial academic research only, once a data use agreement has been
+signed: [REQUEST FORM LINK / CONTACT EMAIL]. The synthetic extraction and the two
+example panels stay public, and they are enough to run the whole pipeline, from the
+raw tables to the experiments; they also show, on data that can be published, what
+the two temporization settings do to the same firms.
 
 
 ## Repository structure
@@ -98,8 +100,8 @@ firms.
 │   │   └── panel_snapshot.csv    # The same tables with the switches off (released)
 │   ├── interim/                  # The two real panels and the per-phase outputs
 │   └── processed/
-│       ├── dataset_controlled.csv  # Final bias-controlled dataset (released)
-│       └── dataset_leakboth.csv    # Final look-ahead-biased dataset (released)
+│       ├── dataset_controlled.csv  # Final bias-controlled dataset
+│       └── dataset_leakboth.csv    # Final look-ahead-biased dataset
 ├── scripts/
 │   ├── pipeline.py               # The command line: tables, panel, datasets, experiments
 │   └── make_example_data.py      # Writes the synthetic extraction, one story per company
@@ -199,7 +201,7 @@ Then pass `--wandb` on the command line, or set `USE_WANDB = True` in
 | you have | put it in | what you can run |
 |---|---|---|
 | nothing | no data needed | everything, on the synthetic extraction already in `data/example/pitchbook/` |
-| the released datasets (in the repository) | `data/processed/` | the experiments, and every comparison of the paper |
+| the datasets, obtained on request | `data/processed/` | the experiments, and every comparison of the paper |
 | a PitchBook extraction | `data/raw/pitchbook/` | the whole pipeline, from the raw tables |
 
 ## Running the pipeline
@@ -235,7 +237,7 @@ any further setup. In an editor, open the repository and pick the interpreter in
 2. **`2_dataset_construction.ipynb`.** Reads those two panels and writes
    `dataset_controlled.csv` and `dataset_leakboth.csv` under `data/processed/`. The
    same `EXAMPLE` switch is in its first cell. Skip this notebook entirely if you are
-   using the released datasets.
+   using the datasets obtained on request.
 3. **`3_experiments.ipynb`.** Set `SETTING` to the experiment you want, run down to
    the results table, then change `SETTING` and run again: the stores accumulate, and
    the comparison cells at the bottom read them. `USE_WANDB` decides whether the runs
@@ -276,8 +278,9 @@ everything under `data/example/`. In the notebooks the same route is `EXAMPLE =
 True` in the first cell. It is the shortest way to see what each phase does, and
 `tests/test_example_pipeline.py` checks the result value by value.
 
-The **experiments** need no licensed data either: `data/processed/dataset_*.csv`
-are released, so `pipeline.py experiments` runs on the real ones out of the box.
+The **experiments** run on the example datasets too, as the last stage of `all
+--example`. To run them on the real data, the datasets obtained on request have to
+be in `data/processed/` (see [Data availability](#data-availability)).
 
 ### `pipeline.py tables`
 
@@ -589,7 +592,8 @@ tables are in the notebook.
 
 ## Reproducing the paper's results
 
-The two processed datasets are released, so the results can be reproduced without
+With the two processed datasets, obtained on request (see
+[Data availability](#data-availability)), the results can be reproduced without
 the PitchBook extraction:
 
 ```bash
@@ -615,7 +619,7 @@ uv run python scripts/pipeline.py experiments --setting all
 
 ## Citation
 
-If you use this code or the released datasets, please cite the accompanying
+If you use this code or the datasets, please cite the accompanying
 paper:
 
 ```bibtex
@@ -631,5 +635,7 @@ paper:
 
 The source code is released for academic and research use. The original
 PitchBook-derived panel is **not** included and remains subject to PitchBook's
-licensing terms. What this repository distributes is the synthetic extraction, the
-two example panels it produces, and the two final, de-identified datasets.
+licensing terms. What this repository distributes is the synthetic extraction and the
+two example panels it produces. The two final datasets, provided on request, remain
+subject to PitchBook's licensing terms, and any use of them must cite the source as
+"Source: PitchBook Data, Inc."

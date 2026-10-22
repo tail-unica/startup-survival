@@ -28,3 +28,7 @@ data/raw/pitchbook/
 data/interim/
 data/example/interim/
 data/example/processed/
+
+# The final datasets (derived from PitchBook, available on request) and the run exports
+data/processed/
+data/results/
