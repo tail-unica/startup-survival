@@ -79,7 +79,7 @@ The two **final datasets** are the exact inputs to every model and experiment
 reported in the paper. They are derived from PitchBook Data, Inc., and under its
 licensing terms they **cannot be made public**. They are **available on request**,
 for non-commercial academic research only, once a data use agreement has been
-signed: [REQUEST FORM LINK / CONTACT EMAIL]. The synthetic extraction and the two
+signed: https://forms.gle/qRCNacSJ6ZoePLYr5. The synthetic extraction and the two
 example panels stay public, and they are enough to run the whole pipeline, from the
 raw tables to the experiments; they also show, on data that can be published, what
 the two temporization settings do to the same firms.
